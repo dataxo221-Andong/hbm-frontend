@@ -117,8 +117,8 @@ function StackVisualization3D({
     <div className="relative w-full h-[450px] flex items-center justify-center overflow-hidden">
       {/* Isometric Stack Container - Top down view */}
       <svg 
-        width="350" 
-        height="400" 
+        width="400" 
+        height="450" 
         viewBox="0 0 350 400"
       >
         {/* Render from bottom to top so top layers appear on top */}
