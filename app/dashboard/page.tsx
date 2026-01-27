@@ -305,42 +305,58 @@ export default function WaferModelingPage() {
       setCurrentStep(1)
 
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://3.39.251.229:5000'
-      const response = await fetch(`${API_URL}/wafer/upload`, {
+
+      // [Step 1] Upload: 접수 및 ID 발급
+      const uploadResponse = await fetch(`${API_URL}/wafer/upload`, {
         method: 'POST',
         body: formData,
-        // Don't set Content-Type for FormData, browser does it
       })
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Upload failed: ${response.statusText}`)
+      if (!uploadResponse.ok) {
+        const errorData = await uploadResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || `Upload failed: ${uploadResponse.statusText}`)
       }
 
-      // Step 2-5: Processing Animation (Fast forward as backend returns quickly)
+      const uploadData = await uploadResponse.json()
+      const lotName = uploadData.lotName
+
+      // [Step 2] Processing Animation (사용자 경험용)
       for (let step = 2; step <= PROCESS_STEPS.length; step++) {
         setCurrentStep(step)
-        await new Promise(resolve => setTimeout(resolve, 400))
+        // 백엔드 분석 시간을 벌어주면서 자연스러운 진행 연출
+        await new Promise(resolve => setTimeout(resolve, 800))
       }
 
-      const data = await response.json()
-      const resultData = data.data // { lotName, failureType, totalGrade, chipsSaved }
+      // [Step 3] Analyze: 실제 분석 수행
+      const analyzeResponse = await fetch(`${API_URL}/wafer/${lotName}/analyze`, {
+        method: 'POST'
+      })
+
+      if (!analyzeResponse.ok) {
+        const errorData = await analyzeResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || `Analysis failed: ${analyzeResponse.statusText}`)
+      }
+
+      const analyzeData = await analyzeResponse.json()
+      const resultData = analyzeData.result // { failureType, totalGrade, defectDensity, dieCount, ... }
 
       // Map Backend Response to UI Model
-      const totalDie = resultData.chipsSaved || 1024
-      const grade = resultData.totalGrade || 'B'
-      const yieldVal = grade === 'A' ? 95 : grade === 'B' ? 90 : grade === 'C' ? 80 : 70
+      const totalDie = resultData.dieCount || 1024
+      const goodDieCount = totalDie - (resultData.defectCount || 0)
+      const badDieCount = resultData.defectCount || 0
 
-      const goodDieCount = Math.floor(totalDie * (yieldVal / 100))
-      const badDieCount = totalDie - goodDieCount
+      // 수율 계산 (Good / Total) * 100
+      const yieldVal = totalDie > 0
+        ? parseFloat(((goodDieCount / totalDie) * 100).toFixed(1))
+        : 0
 
       const result: AnalysisResult = {
-        waferId: resultData.lotName,
-        yield: yieldVal, // Backend should ideally return this
-        grade: grade,
+        waferId: analyzeData.lotName,
+        yield: yieldVal,
+        grade: resultData.totalGrade || 'F',
         goodDie: goodDieCount,
         badDie: badDieCount,
         defects: [
-          // Backend returns single failure type 'failureType'
           { type: resultData.failureType, count: badDieCount, percent: 100 }
         ],
         processedAt: new Date().toISOString(),
