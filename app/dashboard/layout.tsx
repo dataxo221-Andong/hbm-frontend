@@ -93,7 +93,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
         <Link href="/dashboard" className="flex items-center gap-3">
           <WaferIcon className="w-8 h-8 text-sidebar-primary flex-shrink-0" />
           {!collapsed && (
-            <span className="text-lg font-bold text-sidebar-foreground">WaferVision</span>
+            <span className="text-lg font-bold text-sidebar-foreground">StackVision</span>
           )}
         </Link>
         <Button
@@ -162,7 +162,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
               </Avatar>
               {!collapsed && (
                 <div className="flex-1 text-left">
-                  <div className="text-sm font-medium">김민수</div>
+                  <div className="text-sm font-medium">임태민</div>
                   <div className="text-xs text-muted-foreground">엔지니어</div>
                 </div>
               )}
@@ -221,7 +221,7 @@ function MobileNav() {
       <SheetContent side="left" className="w-64 p-0 bg-sidebar">
         <div className="flex items-center h-16 px-4 border-b border-sidebar-border">
           <WaferIcon className="w-8 h-8 text-sidebar-primary" />
-          <span className="ml-3 text-lg font-bold text-sidebar-foreground">WaferVision</span>
+          <span className="ml-3 text-lg font-bold text-sidebar-foreground">StackVision</span>
         </div>
         <div className="h-[calc(100vh-4rem)] overflow-y-auto">
           <nav className="p-4 space-y-1">

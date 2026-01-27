@@ -19,7 +19,7 @@ const INITIAL_MESSAGES: Message[] = [
   {
     id: "1",
     role: "assistant",
-    content: "안녕하세요! WaferVision AI 어시스턴트입니다. 웨이퍼 분석, HBM 적층 구조, 수율 데이터, 재고 관리 등에 대해 도움을 드릴 수 있습니다. 무엇을 도와드릴까요?",
+    content: "안녕하세요! StackVision AI 어시스턴트입니다. 웨이퍼 분석, HBM 적층 구조, 수율 데이터, 재고 관리 등에 대해 도움을 드릴 수 있습니다. 무엇을 도와드릴까요?",
     timestamp: new Date()
   }
 ]
@@ -122,10 +122,15 @@ export function ChatBot({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
             </div>
             <div>
               <h3 className="font-semibold text-foreground">AI 어시스턴트</h3>
-              <p className="text-xs text-muted-foreground">WaferVision AI</p>
+              <p className="text-xs text-muted-foreground">StackVision AI</p>
             </div>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose}>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onClose}
+            className="text-muted-foreground hover:text-[#f8fafc] hover:bg-[#ef4444]"
+          >
             <X className="w-4 h-4" />
             <span className="sr-only">닫기</span>
           </Button>

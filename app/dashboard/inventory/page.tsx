@@ -113,22 +113,6 @@ const inventoryData: InventoryItem[] = [
     daysToReorder: 3
   },
   {
-    id: "4",
-    name: "HBM3E 12단 스택",
-    category: "hbm_stack",
-    sku: "HBM3E-12HI-36GB",
-    currentStock: 1280,
-    minStock: 1500,
-    maxStock: 4000,
-    optimalStock: 2500,
-    unit: "EA",
-    status: "critical",
-    lastUpdated: "2024-01-21T10:30:00",
-    trend: "down",
-    trendValue: -12.3,
-    daysToReorder: 1
-  },
-  {
     id: "5",
     name: "완제품 HBM3",
     category: "finished",
@@ -386,13 +370,6 @@ function AIPredictionPanel() {
               AI 인사이트
             </h4>
             <div className="space-y-2 text-sm">
-              <div className="flex items-start gap-2 p-2 rounded-lg bg-destructive/10">
-                <AlertTriangle className="w-4 h-4 text-destructive mt-0.5" />
-                <div>
-                  <span className="text-foreground font-medium">HBM3E 12단 스택</span>
-                  <span className="text-muted-foreground"> - 현재 소비율 기준 1일 내 최소 재고 이하로 감소 예상. 즉시 발주 권장.</span>
-                </div>
-              </div>
               <div className="flex items-start gap-2 p-2 rounded-lg bg-warning/10">
                 <Clock className="w-4 h-4 text-warning mt-0.5" />
                 <div>

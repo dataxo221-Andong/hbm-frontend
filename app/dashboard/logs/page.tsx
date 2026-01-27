@@ -4,7 +4,9 @@ import React from "react"
 import { Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
+// @ts-ignore
+import * as XLSX from "xlsx"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -77,15 +79,15 @@ function generateLogData(count: number) {
 
 // Chart data
 const yieldTrendData = [
-  { date: "01/13", yield: 92.1, target: 93 },
-  { date: "01/14", yield: 93.4, target: 93 },
-  { date: "01/15", yield: 91.8, target: 93 },
-  { date: "01/16", yield: 94.2, target: 93 },
-  { date: "01/17", yield: 93.8, target: 93 },
-  { date: "01/18", yield: 95.1, target: 93 },
-  { date: "01/19", yield: 94.6, target: 93 },
-  { date: "01/20", yield: 93.9, target: 93 },
-  { date: "01/21", yield: 94.8, target: 93 },
+  { date: "01/13", yield: 92.1, legacy: 91.2 },
+  { date: "01/14", yield: 93.4, legacy: 92.4 },
+  { date: "01/15", yield: 91.8, legacy: 90.9 },
+  { date: "01/16", yield: 94.2, legacy: 93.2 },
+  { date: "01/17", yield: 93.8, legacy: 92.9 },
+  { date: "01/18", yield: 95.1, legacy: 94.2 },
+  { date: "01/19", yield: 94.6, legacy: 93.6 },
+  { date: "01/20", yield: 93.9, legacy: 93.0 },
+  { date: "01/21", yield: 94.8, legacy: 93.8 },
 ]
 
 const defectDistribution = [
@@ -146,6 +148,11 @@ function StatCard({
 }
 
 function LogTable({ logs }: { logs: ReturnType<typeof generateLogData> }) {
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
   return (
     <div className="overflow-x-auto">
       <table className="w-full">
@@ -167,12 +174,15 @@ function LogTable({ logs }: { logs: ReturnType<typeof generateLogData> }) {
             <tr key={log.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors">
               <td className="py-3 px-4 text-sm font-mono text-foreground">{log.id}</td>
               <td className="py-3 px-4 text-sm text-muted-foreground">
-                {new Date(log.timestamp).toLocaleString("ko-KR", {
-                  month: "2-digit",
-                  day: "2-digit",
-                  hour: "2-digit",
-                  minute: "2-digit"
-                })}
+                {mounted 
+                  ? new Date(log.timestamp).toLocaleString("ko-KR", {
+                      month: "2-digit",
+                      day: "2-digit",
+                      hour: "2-digit",
+                      minute: "2-digit"
+                    })
+                  : log.timestamp.split('T')[0] // 서버에서는 날짜만 표시
+                }
               </td>
               <td className="py-3 px-4">
                 <Badge variant="outline" className="text-xs">
@@ -237,7 +247,12 @@ export default function HBMLogsPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 10
 
-  const logs = useMemo(() => generateLogData(50), [])
+  const [logs, setLogs] = useState<ReturnType<typeof generateLogData>>([])
+
+  // 클라이언트에서만 랜덤 데이터 생성 (hydration 에러 방지)
+  useEffect(() => {
+    setLogs(generateLogData(50))
+  }, [])
 
   const filteredLogs = useMemo(() => {
     return logs.filter(log => {
@@ -254,6 +269,52 @@ export default function HBMLogsPage() {
   )
 
   const totalPages = Math.ceil(filteredLogs.length / itemsPerPage)
+
+  const exportToExcel = () => {
+    // 엑셀에 출력할 데이터 준비
+    const excelData = filteredLogs.map(log => ({
+      ID: log.id,
+      시간: new Date(log.timestamp).toLocaleString("ko-KR"),
+      타입: log.stackType,
+      레이어: `${log.layers}단`,
+      상태: log.status === "completed" ? "완료" : log.status === "failed" ? "실패" : "처리중",
+      수율: log.yield ? `${log.yield.toFixed(1)}%` : "-",
+      등급: log.grade || "-",
+      "TSV 수율": log.tsvYield ? `${log.tsvYield.toFixed(1)}%` : "-",
+      "본딩 수율": log.bondingYield ? `${log.bondingYield.toFixed(1)}%` : "-",
+      "사이클 타임": log.cycleTime ? `${log.cycleTime.toFixed(0)}min` : "-",
+      결함수: log.defects || "-"
+    }))
+
+    // 워크북 생성
+    const wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.json_to_sheet(excelData)
+
+    // 컬럼 너비 설정
+    const colWidths = [
+      { wch: 12 }, // ID
+      { wch: 20 }, // 시간
+      { wch: 8 },  // 타입
+      { wch: 8 },  // 레이어
+      { wch: 8 },  // 상태
+      { wch: 10 }, // 수율
+      { wch: 6 },  // 등급
+      { wch: 12 }, // TSV 수율
+      { wch: 12 }, // 본딩 수율
+      { wch: 12 }, // 사이클 타임
+      { wch: 8 }   // 결함수
+    ]
+    ws['!cols'] = colWidths
+
+    // 워크시트를 워크북에 추가
+    XLSX.utils.book_append_sheet(wb, ws, "HBM 생산 로그")
+
+    // 파일명 생성 (현재 날짜/시간 포함)
+    const fileName = `HBM_생산로그_${new Date().toISOString().split('T')[0].replace(/-/g, '')}_${new Date().toTimeString().split(' ')[0].replace(/:/g, '')}.xlsx`
+
+    // 엑셀 파일 다운로드
+    XLSX.writeFile(wb, fileName)
+  }
 
   return (
     <Suspense fallback={<Loading />}>
@@ -301,14 +362,32 @@ export default function HBMLogsPage() {
           <TabsContent value="yield">
             <Card>
               <CardHeader>
-                <CardTitle>수율 추이 (최근 9일)</CardTitle>
-                <CardDescription>일별 평균 수율 및 목표 대비 현황</CardDescription>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <CardTitle>수율 추이 (최근 9일)</CardTitle>
+                    <CardDescription>일별 평균 수율 및 목표 대비 현황</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#3b82f6]" />
+                      optimal
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#ef4444]" />
+                      legacy
+                    </div>
+                  </div>
+                </div>
               </CardHeader>
-              <CardContent>
-                <div className="h-[300px]">
+              <CardContent className="overflow-visible">
+                <div className="h-[300px] py-4">
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={yieldTrendData}>
+                    <AreaChart data={yieldTrendData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                       <defs>
+                        <linearGradient id="legacyGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#ef4444" stopOpacity={0.05}/>
+                        </linearGradient>
                         <linearGradient id="yieldGradient" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4}/>
                           <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.1}/>
@@ -330,8 +409,20 @@ export default function HBMLogsPage() {
                           backgroundColor: "#1f2937",
                           border: "1px solid #374151",
                           borderRadius: "8px",
-                          color: "#f3f4f6"
+                          color: "#f3f4f6",
+                          zIndex: 1000
                         }}
+                        wrapperStyle={{ zIndex: 1000 }}
+                        position={{ y: -10 }}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="legacy"
+                        stroke="#ef4444"
+                        strokeWidth={2}
+                        fill="url(#legacyGradient)"
+                        name="legacy"
+                        dot={false}
                       />
                       <Area
                         type="monotone"
@@ -339,18 +430,9 @@ export default function HBMLogsPage() {
                         stroke="#3b82f6"
                         strokeWidth={4}
                         fill="url(#yieldGradient)"
-                        name="수율 (%)"
+                        name="optimal"
                         dot={{ fill: "#3b82f6", strokeWidth: 2, r: 5, stroke: "#fff" }}
                         activeDot={{ r: 7, fill: "#3b82f6", stroke: "#fff", strokeWidth: 2 }}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="target"
-                        stroke="#ef4444"
-                        strokeWidth={2}
-                        strokeDasharray="5 5"
-                        dot={false}
-                        name="목표 (%)"
                       />
                     </AreaChart>
                   </ResponsiveContainer>
@@ -365,10 +447,10 @@ export default function HBMLogsPage() {
                 <CardTitle>생산량 현황</CardTitle>
                 <CardDescription>HBM 타입별 일일 생산량</CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="h-[300px]">
+              <CardContent className="overflow-visible">
+                <div className="h-[300px] py-4">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={productionVolume}>
+                    <BarChart data={productionVolume} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                       <XAxis 
                         dataKey="date" 
@@ -384,8 +466,11 @@ export default function HBMLogsPage() {
                           backgroundColor: "#1f2937",
                           border: "1px solid #374151",
                           borderRadius: "8px",
-                          color: "#f3f4f6"
+                          color: "#f3f4f6",
+                          zIndex: 1000
                         }}
+                        wrapperStyle={{ zIndex: 1000 }}
+                        position={{ y: -10 }}
                       />
                       <Legend />
                       <Bar dataKey="hbm3" name="HBM3" fill="#3b82f6" radius={[4, 4, 0, 0]} />
@@ -403,8 +488,8 @@ export default function HBMLogsPage() {
                 <CardTitle>결함 유형 분포</CardTitle>
                 <CardDescription>최근 7일간 결함 유형별 비율</CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="h-[300px] flex items-center justify-center">
+              <CardContent className="overflow-visible">
+                <div className="h-[300px] flex items-center justify-center py-4">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
@@ -427,8 +512,10 @@ export default function HBMLogsPage() {
                           backgroundColor: "#1f2937",
                           border: "1px solid #374151",
                           borderRadius: "8px",
-                          color: "#f3f4f6"
+                          color: "#f3f4f6",
+                          zIndex: 1000
                         }}
+                        wrapperStyle={{ zIndex: 1000 }}
                       />
                     </PieChart>
                   </ResponsiveContainer>
@@ -446,7 +533,7 @@ export default function HBMLogsPage() {
                 <CardTitle>HBM 생산 로그</CardTitle>
                 <CardDescription>TSV 공정 기반 HBM 스택 생산 이력</CardDescription>
               </div>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" onClick={exportToExcel}>
                 <Download className="w-4 h-4 mr-2" />
                 내보내기
               </Button>

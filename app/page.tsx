@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { login, register } from "@/lib/api/auth"
+import { toast } from "sonner"
 
 function WaferIcon({ className }: { className?: string }) {
   return (
@@ -58,34 +60,117 @@ export default function AuthPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [loginData, setLoginData] = useState({ email: "", password: "" })
-  const [signupData, setSignupData] = useState({ 
-    name: "", 
-    email: "", 
-    password: "", 
+  const [signupData, setSignupData] = useState({
+    name: "",
+    email: "",
+    password: "",
     confirmPassword: "",
-    company: ""
   })
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    // 입력 검증
+    if (!loginData.email.trim()) {
+      toast.error("이메일을 입력해주세요.")
+      return
+    }
+
+    if (!loginData.password.trim()) {
+      toast.error("비밀번호를 입력해주세요.")
+      return
+    }
+
+    // 이메일 형식 검증
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(loginData.email)) {
+      toast.error("올바른 이메일 형식이 아닙니다.")
+      return
+    }
+
     setIsLoading(true)
-    // Simulate login
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    setIsLoading(false)
-    router.push("/dashboard")
+
+    try {
+      await login(loginData.email, loginData.password)
+
+      toast.success("로그인 성공!")
+
+      // 대시보드로 이동
+      router.push("/dashboard")
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '로그인에 실패했습니다.'
+      toast.error(errorMessage)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (signupData.password !== signupData.confirmPassword) {
-      alert("비밀번호가 일치하지 않습니다.")
+
+    // 입력 검증
+    if (!signupData.name.trim()) {
+      toast.error("이름을 입력해주세요.")
       return
     }
+
+    if (signupData.name.trim().length < 2) {
+      toast.error("이름은 2자 이상 입력해주세요.")
+      return
+    }
+
+    if (!signupData.email.trim()) {
+      toast.error("이메일을 입력해주세요.")
+      return
+    }
+
+    // 이메일 형식 검증
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(signupData.email)) {
+      toast.error("올바른 이메일 형식이 아닙니다.")
+      return
+    }
+
+    if (!signupData.password.trim()) {
+      toast.error("비밀번호를 입력해주세요.")
+      return
+    }
+
+    if (signupData.password.length < 6) {
+      toast.error("비밀번호는 6자 이상 입력해주세요.")
+      return
+    }
+
+    if (!signupData.confirmPassword.trim()) {
+      toast.error("비밀번호 확인을 입력해주세요.")
+      return
+    }
+
+    if (signupData.password !== signupData.confirmPassword) {
+      toast.error("비밀번호가 일치하지 않습니다.")
+      return
+    }
+
     setIsLoading(true)
-    // Simulate signup
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    setIsLoading(false)
-    router.push("/dashboard")
+
+    try {
+      await register(
+        signupData.name,
+        signupData.email,
+        signupData.password,
+        signupData.confirmPassword
+      )
+
+      toast.success("회원가입이 완료되었습니다!")
+
+      // 대시보드로 이동
+      router.push("/dashboard")
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '회원가입에 실패했습니다.'
+      toast.error(errorMessage)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -97,20 +182,20 @@ export default function AuthPage() {
           <div className="flex items-center gap-4 mb-8">
             <WaferIcon className="w-16 h-16 text-primary" />
             <div>
-              <h1 className="text-4xl font-bold text-foreground">WaferVision</h1>
+              <h1 className="text-4xl font-bold text-foreground">StackVision</h1>
               <p className="text-muted-foreground">반도체 웨이퍼 분석 시스템</p>
             </div>
           </div>
-          
+
           <div className="max-w-md space-y-6 text-center">
             <h2 className="text-2xl font-semibold text-foreground">
               차세대 HBM 분석 플랫폼
             </h2>
             <p className="text-muted-foreground leading-relaxed">
-              웨이퍼 이미지 분류부터 적층 구조 시각화, AI 기반 재고 관리까지 
+              웨이퍼 이미지 분류부터 적층 구조 시각화, AI 기반 재고 관리까지
               반도체 제조 공정의 모든 분석을 하나의 플랫폼에서 경험하세요.
             </p>
-            
+
             <div className="grid grid-cols-2 gap-4 pt-6">
               <div className="p-4 rounded-lg bg-card/50 border border-border">
                 <div className="text-2xl font-bold text-primary">99.7%</div>
@@ -199,17 +284,6 @@ export default function AuthPage() {
                         value={signupData.name}
                         onChange={(e) => setSignupData({ ...signupData, name: e.target.value })}
                         required
-                        className="bg-input"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="signup-company">회사명</Label>
-                      <Input
-                        id="signup-company"
-                        type="text"
-                        placeholder="회사명을 입력하세요"
-                        value={signupData.company}
-                        onChange={(e) => setSignupData({ ...signupData, company: e.target.value })}
                         className="bg-input"
                       />
                     </div>

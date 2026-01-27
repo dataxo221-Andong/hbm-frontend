@@ -1,6 +1,6 @@
 "use client"
 
-import React from "react"
+import React, { memo, useCallback } from "react"
 
 import { useState, useRef, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -15,18 +15,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { 
-  Upload, 
-  Play, 
-  CheckCircle2, 
-  XCircle, 
-  AlertCircle, 
+import {
+  Upload,
+  Play,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
   ArrowRight,
   Loader2,
   RotateCcw,
   Eye,
   Download,
-  ImageIcon,
   X
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -34,7 +33,7 @@ import { WaferMapVisualization } from "@/components/wafer-map"
 
 // Process flow steps
 const PROCESS_STEPS = [
-  { id: 1, name: "이미지 업로드", description: "웨이퍼 이미지 데이터 입력" },
+  { id: 1, name: "데이터 업로드", description: ".pkl 분석 데이터 입력" },
   { id: 2, name: "전처리", description: "노이즈 제거 및 정규화" },
   { id: 3, name: "결함 검출", description: "AI 기반 결함 탐지" },
   { id: 4, name: "분류", description: "Good/Bad Die 분류" },
@@ -50,17 +49,17 @@ const DEMO_WAFERS = [
   { id: "WF-2024-005", batch: "B002", status: "pending", yield: null, grade: null },
 ]
 
-function ProcessFlow({ currentStep, isProcessing }: { currentStep: number; isProcessing: boolean }) {
+const ProcessFlow = memo(function ProcessFlow({ currentStep, isProcessing }: { currentStep: number; isProcessing: boolean }) {
   return (
     <div className="flex items-center gap-1 overflow-x-auto pb-2">
       {PROCESS_STEPS.map((step, index) => {
         const isCompleted = step.id < currentStep
         const isCurrent = step.id === currentStep
         const isActive = isCompleted || isCurrent
-        
+
         return (
           <div key={step.id} className="flex items-center">
-            <div 
+            <div
               className={cn(
                 "flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 min-w-[160px]",
                 isCompleted && "bg-success/20 border border-success/40",
@@ -109,9 +108,9 @@ function ProcessFlow({ currentStep, isProcessing }: { currentStep: number; isPro
       })}
     </div>
   )
-}
+})
 
-function WaferCard({ wafer, onView }: { wafer: typeof DEMO_WAFERS[0]; onView: () => void }) {
+const WaferCard = memo(function WaferCard({ wafer, onView }: { wafer: typeof DEMO_WAFERS[0]; onView: () => void }) {
   return (
     <Card className={cn(
       "cursor-pointer transition-all hover:border-primary/50",
@@ -126,17 +125,17 @@ function WaferCard({ wafer, onView }: { wafer: typeof DEMO_WAFERS[0]; onView: ()
           <Badge
             variant={
               wafer.status === "completed" ? "default" :
-              wafer.status === "processing" ? "secondary" : "outline"
+                wafer.status === "processing" ? "secondary" : "outline"
             }
             className={cn(
               wafer.status === "completed" && "bg-success text-success-foreground"
             )}
           >
             {wafer.status === "completed" ? "완료" :
-             wafer.status === "processing" ? "처리중" : "대기"}
+              wafer.status === "processing" ? "처리중" : "대기"}
           </Badge>
         </div>
-        
+
         {wafer.status === "completed" && (
           <div className="mt-3 pt-3 border-t border-border">
             <div className="flex items-center justify-between text-sm">
@@ -162,9 +161,9 @@ function WaferCard({ wafer, onView }: { wafer: typeof DEMO_WAFERS[0]; onView: ()
           </div>
         )}
 
-        <Button 
-          variant="outline" 
-          size="sm" 
+        <Button
+          variant="outline"
+          size="sm"
           className="w-full mt-3 bg-transparent"
           onClick={onView}
           disabled={wafer.status !== "completed"}
@@ -175,9 +174,9 @@ function WaferCard({ wafer, onView }: { wafer: typeof DEMO_WAFERS[0]; onView: ()
       </CardContent>
     </Card>
   )
-}
+})
 
-function ClassificationStats() {
+const ClassificationStats = memo(function ClassificationStats() {
   const stats = [
     { label: "총 분석 웨이퍼", value: "1,247", change: "+23" },
     { label: "평균 수율", value: "93.4%", change: "+1.2%" },
@@ -203,7 +202,7 @@ function ClassificationStats() {
       ))}
     </div>
   )
-}
+})
 
 // Analysis result type
 interface AnalysisResult {
@@ -212,7 +211,6 @@ interface AnalysisResult {
   grade: string
   goodDie: number
   badDie: number
-  needRecheck: number
   defects: {
     type: string
     count: number
@@ -220,6 +218,24 @@ interface AnalysisResult {
   }[]
   processedAt: string
 }
+
+// 클라이언트에서만 날짜 포맷팅하는 컴포넌트
+const ProcessedAtDisplay = memo(function ProcessedAtDisplay({ processedAt }: { processedAt: string }) {
+  const [formattedDate, setFormattedDate] = useState<string>(processedAt.split('T')[0])
+
+  useEffect(() => {
+    setFormattedDate(new Date(processedAt).toLocaleString("ko-KR"))
+  }, [processedAt])
+
+  return (
+    <div className="p-4 rounded-lg bg-muted/50">
+      <div className="text-sm text-muted-foreground">분석 일시</div>
+      <div className="text-lg font-bold text-foreground mt-1">
+        {formattedDate}
+      </div>
+    </div>
+  )
+})
 
 export default function WaferModelingPage() {
   const [currentStep, setCurrentStep] = useState(0)
@@ -230,118 +246,155 @@ export default function WaferModelingPage() {
   const [previewUrls, setPreviewUrls] = useState<string[]>([])
   const [showResultModal, setShowResultModal] = useState(false)
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
+  const [waferMapStats, setWaferMapStats] = useState<{ good: number; bad: number; total: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Generate preview URLs when files are uploaded
+  // 이미지 미리보기 URL 생성
   useEffect(() => {
-    if (uploadedFiles.length === 0) {
-      setPreviewUrls([])
-      return
-    }
-
-    const urls = uploadedFiles.map(file => URL.createObjectURL(file))
+    const urls: string[] = []
+    uploadedFiles.forEach((file) => {
+      if (file.type.startsWith('image/')) {
+        const url = URL.createObjectURL(file)
+        urls.push(url)
+      } else {
+        urls.push('')
+      }
+    })
     setPreviewUrls(urls)
 
-    // Cleanup URLs on unmount or when files change
+    // Cleanup: 컴포넌트 언마운트 시 URL 해제
     return () => {
-      urls.forEach(url => URL.revokeObjectURL(url))
+      urls.forEach((url) => {
+        if (url) URL.revokeObjectURL(url)
+      })
     }
   }, [uploadedFiles])
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (files) {
       setUploadedFiles(Array.from(files))
       setCurrentStep(1)
     }
-  }
+  }, [])
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     const files = e.dataTransfer.files
     if (files) {
       setUploadedFiles(Array.from(files))
       setCurrentStep(1)
     }
-  }
+  }, [])
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
-  }
+  }, [])
 
-  const removeFile = (index: number) => {
-    setUploadedFiles(prev => {
-      const newFiles = prev.filter((_, i) => i !== index)
-      if (newFiles.length === 0) {
-        setCurrentStep(0)
+  const startProcessing = useCallback(async () => {
+    // Real API Call
+    try {
+      if (uploadedFiles.length === 0) return
+
+      setIsProcessing(true)
+
+      const formData = new FormData()
+      formData.append('wafer_image', uploadedFiles[0])
+
+      // Step 1: Uploading
+      setCurrentStep(1)
+
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://3.39.251.229:5000'
+      const response = await fetch(`${API_URL}/wafer/upload`, {
+        method: 'POST',
+        body: formData,
+        // Don't set Content-Type for FormData, browser does it
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Upload failed: ${response.statusText}`)
       }
-      return newFiles
-    })
-  }
 
-  const startProcessing = async () => {
-    if (uploadedFiles.length === 0) return
-    
-    setIsProcessing(true)
-    
-    // Simulate processing through each step
-    for (let step = 1; step <= PROCESS_STEPS.length; step++) {
-      setCurrentStep(step)
-      await new Promise(resolve => setTimeout(resolve, 1200))
+      // Step 2-5: Processing Animation (Fast forward as backend returns quickly)
+      for (let step = 2; step <= PROCESS_STEPS.length; step++) {
+        setCurrentStep(step)
+        await new Promise(resolve => setTimeout(resolve, 400))
+      }
+
+      const data = await response.json()
+      const resultData = data.data // { lotName, failureType, totalGrade, chipsSaved }
+
+      // Map Backend Response to UI Model
+      const totalDie = resultData.chipsSaved || 1024
+      const grade = resultData.totalGrade || 'B'
+      const yieldVal = grade === 'A' ? 95 : grade === 'B' ? 90 : grade === 'C' ? 80 : 70
+
+      const goodDieCount = Math.floor(totalDie * (yieldVal / 100))
+      const badDieCount = totalDie - goodDieCount
+
+      const result: AnalysisResult = {
+        waferId: resultData.lotName,
+        yield: yieldVal, // Backend should ideally return this
+        grade: grade,
+        goodDie: goodDieCount,
+        badDie: badDieCount,
+        defects: [
+          // Backend returns single failure type 'failureType'
+          { type: resultData.failureType, count: badDieCount, percent: 100 }
+        ],
+        processedAt: new Date().toISOString(),
+      }
+
+      // Update wafers list
+      setWafers(prev => [
+        {
+          id: result.waferId,
+          batch: "BATCH-001",
+          status: "completed" as const,
+          yield: result.yield,
+          grade: result.grade,
+        },
+        ...prev,
+      ])
+
+      setAnalysisResult(result)
+      setWaferMapStats({
+        good: goodDieCount,
+        bad: badDieCount,
+        total: totalDie
+      })
+
+      setCurrentStep(PROCESS_STEPS.length + 1)
+      setIsProcessing(false)
+      setShowResultModal(true)
+
+    } catch (error) {
+      console.error("Analysis Failed:", error)
+      // Show specific error message for easier debugging
+      alert(`분석 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
+      setIsProcessing(false)
+      setCurrentStep(0)
     }
+  }, [uploadedFiles])
 
-    // Generate random analysis result
-    const yieldValue = 88 + Math.random() * 10
-    const totalDie = 970
-    const goodDie = Math.floor(totalDie * (yieldValue / 100))
-    const badDie = Math.floor((totalDie - goodDie) * 0.7)
-    const needRecheck = totalDie - goodDie - badDie
-
-    const result: AnalysisResult = {
-      waferId: `WF-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`,
-      yield: Math.round(yieldValue * 10) / 10,
-      grade: yieldValue >= 95 ? "A+" : yieldValue >= 90 ? "A" : yieldValue >= 85 ? "B" : "C",
-      goodDie,
-      badDie,
-      needRecheck,
-      defects: [
-        { type: "Edge Defect", count: Math.floor(Math.random() * 30) + 10, percent: 42 },
-        { type: "Particle", count: Math.floor(Math.random() * 20) + 5, percent: 27 },
-        { type: "Scratch", count: Math.floor(Math.random() * 15) + 3, percent: 18 },
-        { type: "Pattern Defect", count: Math.floor(Math.random() * 10) + 2, percent: 13 },
-      ],
-      processedAt: new Date().toLocaleString("ko-KR"),
-    }
-
-    // Update wafers list
-    setWafers(prev => [
-      {
-        id: result.waferId,
-        batch: `B${String(Math.floor(Math.random() * 100)).padStart(3, '0')}`,
-        status: "completed" as const,
-        yield: result.yield,
-        grade: result.grade,
-      },
-      ...prev,
-    ])
-
-    setAnalysisResult(result)
-    setIsProcessing(false)
-    setShowResultModal(true)
-  }
-
-  const resetProcess = () => {
+  const resetProcess = useCallback(() => {
     setCurrentStep(0)
     setIsProcessing(false)
     setUploadedFiles([])
     setAnalysisResult(null)
-  }
+    // previewUrls는 useEffect의 cleanup에서 자동으로 정리됨
+  }, [])
 
-  const closeResultModal = () => {
+  const closeResultModal = useCallback(() => {
     setShowResultModal(false)
     setCurrentStep(0)
     setUploadedFiles([])
-  }
+  }, [])
+
+  const handleWaferView = useCallback((waferId: string) => {
+    setSelectedWafer(waferId)
+  }, [])
 
   return (
     <div className="space-y-6">
@@ -354,16 +407,16 @@ export default function WaferModelingPage() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle>웨이퍼 분석 공정 플로우</CardTitle>
-              <CardDescription>웨이퍼 이미지를 업로드하고 AI 기반 분류를 시작하세요</CardDescription>
+              <CardDescription>.pkl 분석 데이터를 업로드하고 AI 기반 분류를 시작하세요</CardDescription>
             </div>
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={resetProcess} disabled={isProcessing}>
                 <RotateCcw className="w-4 h-4 mr-2" />
                 초기화
               </Button>
-              <Button 
-                size="sm" 
-                onClick={startProcessing} 
+              <Button
+                size="sm"
+                onClick={startProcessing}
                 disabled={isProcessing || uploadedFiles.length === 0}
               >
                 {isProcessing ? (
@@ -389,7 +442,7 @@ export default function WaferModelingPage() {
       {/* Main Content Tabs */}
       <Tabs defaultValue="upload" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="upload">이미지 업로드</TabsTrigger>
+          <TabsTrigger value="upload">파일 업로드</TabsTrigger>
           <TabsTrigger value="wafers">웨이퍼 목록</TabsTrigger>
           <TabsTrigger value="results">분석 결과</TabsTrigger>
         </TabsList>
@@ -401,15 +454,15 @@ export default function WaferModelingPage() {
                 type="file"
                 ref={fileInputRef}
                 onChange={handleFileUpload}
-                accept="image/*,.tiff,.bmp"
+                accept=".pkl,.png,.jpg,.jpeg,.tiff,.bmp,image/*"
                 multiple
                 className="hidden"
               />
-              <div 
+              <div
                 className={cn(
                   "border-2 border-dashed rounded-lg p-12 text-center transition-colors cursor-pointer",
-                  uploadedFiles.length > 0 
-                    ? "border-primary/50 bg-primary/5" 
+                  uploadedFiles.length > 0
+                    ? "border-primary/50 bg-primary/5"
                     : "border-border hover:border-primary/50"
                 )}
                 onClick={() => fileInputRef.current?.click()}
@@ -418,75 +471,94 @@ export default function WaferModelingPage() {
               >
                 <Upload className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
                 <h3 className="text-lg font-medium text-foreground mb-2">
-                  웨이퍼 이미지 업로드
+                  분석 데이터 업로드
                 </h3>
                 <p className="text-sm text-muted-foreground mb-4">
-                  PNG, JPG, TIFF 형식의 웨이퍼 이미지를 드래그하거나 클릭하여 업로드하세요
+                  .pkl (pickle) 파일을 드래그 앤 드롭하거나 클릭하여 업로드하세요
                 </p>
                 <Button variant="outline" className="bg-transparent">
                   파일 선택
                 </Button>
               </div>
 
-              {/* Uploaded Files List */}
+              {/* Uploaded Files List - 이미지 미리보기 포함 */}
               {uploadedFiles.length > 0 && (
                 <div className="mt-6 space-y-3">
                   <div className="flex items-center justify-between">
                     <h4 className="text-sm font-medium text-foreground">
                       업로드된 파일 ({uploadedFiles.length}개)
                     </h4>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={resetProcess}
                       className="text-muted-foreground hover:text-destructive"
                     >
                       전체 삭제
                     </Button>
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
                     {uploadedFiles.map((file, index) => (
-                      <div 
+                      <div
                         key={`${file.name}-${index}`}
-                        className="relative group rounded-lg overflow-hidden border border-border bg-muted/30 hover:border-primary/50 transition-colors"
+                        className="relative group rounded-lg border border-border bg-muted/30 hover:bg-muted/50 transition-colors overflow-hidden"
                       >
-                        {/* Image Preview */}
-                        <div className="aspect-square relative">
-                          {previewUrls[index] ? (
+                        {previewUrls[index] ? (
+                          <div className="relative aspect-square bg-muted max-h-32">
                             <img
-                              src={previewUrls[index] || "/placeholder.svg"}
+                              src={previewUrls[index]}
                               alt={file.name}
                               className="w-full h-full object-cover"
                             />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center bg-muted">
-                              <ImageIcon className="w-10 h-10 text-muted-foreground" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-background/0 to-transparent" />
+                            <div className="absolute bottom-0 left-0 right-0 p-2">
+                              <div className="text-xs font-medium text-foreground truncate">
+                                {file.name}
+                              </div>
+                              <div className="text-[10px] text-muted-foreground mt-0.5">
+                                {(file.size / 1024 / 1024).toFixed(2)} MB
+                              </div>
                             </div>
-                          )}
-                          {/* Overlay on hover */}
-                          <div className="absolute inset-0 bg-background/80 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                            <Button
-                              variant="destructive"
-                              size="icon"
-                              className="h-8 w-8"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                removeFile(index)
-                              }}
-                            >
-                              <X className="w-4 h-4" />
-                            </Button>
                           </div>
-                        </div>
-                        {/* File Info */}
-                        <div className="p-2">
-                          <div className="text-xs font-medium text-foreground truncate">
-                            {file.name}
+                        ) : (
+                          <div className="p-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
+                                <Upload className="w-6 h-6 text-muted-foreground" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium text-foreground truncate">
+                                  {file.name}
+                                </div>
+                                <div className="text-xs text-muted-foreground mt-1">
+                                  {(file.size / 1024 / 1024).toFixed(2)} MB
+                                </div>
+                              </div>
+                            </div>
                           </div>
-                          <div className="text-xs text-muted-foreground">
-                            {(file.size / 1024 / 1024).toFixed(2)} MB
-                          </div>
-                        </div>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="absolute top-2 right-2 h-8 w-8 bg-background/80 hover:bg-destructive hover:text-destructive-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            // 미리보기 URL 정리
+                            if (previewUrls[index]) {
+                              URL.revokeObjectURL(previewUrls[index])
+                            }
+                            setUploadedFiles(prev => {
+                              const newFiles = prev.filter((_, i) => i !== index)
+                              if (newFiles.length === 0) {
+                                setCurrentStep(0)
+                              }
+                              return newFiles
+                            })
+                            setPreviewUrls(prev => prev.filter((_, i) => i !== index))
+                          }}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
                       </div>
                     ))}
                   </div>
@@ -498,7 +570,7 @@ export default function WaferModelingPage() {
                   <CardContent className="p-4">
                     <div className="text-sm font-medium text-foreground">지원 형식</div>
                     <div className="text-xs text-muted-foreground mt-1">
-                      PNG, JPG, TIFF, BMP
+                      PNG, JPG, TIFF, BMP, PKL
                     </div>
                   </CardContent>
                 </Card>
@@ -506,7 +578,7 @@ export default function WaferModelingPage() {
                   <CardContent className="p-4">
                     <div className="text-sm font-medium text-foreground">최대 파일 크기</div>
                     <div className="text-xs text-muted-foreground mt-1">
-                      100MB per file
+                      1GB per file
                     </div>
                   </CardContent>
                 </Card>
@@ -514,7 +586,7 @@ export default function WaferModelingPage() {
                   <CardContent className="p-4">
                     <div className="text-sm font-medium text-foreground">배치 업로드</div>
                     <div className="text-xs text-muted-foreground mt-1">
-                      최대 50장 동시 처리
+                      최대 10,000장 동시 처리
                     </div>
                   </CardContent>
                 </Card>
@@ -534,13 +606,13 @@ export default function WaferModelingPage() {
               결과 내보내기
             </Button>
           </div>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {wafers.map((wafer) => (
-              <WaferCard 
-                key={wafer.id} 
-                wafer={wafer} 
-                onView={() => setSelectedWafer(wafer.id)}
+              <WaferCard
+                key={wafer.id}
+                wafer={wafer}
+                onView={() => handleWaferView(wafer.id)}
               />
             ))}
           </div>
@@ -551,11 +623,11 @@ export default function WaferModelingPage() {
             {/* Wafer Map */}
             <Card>
               <CardHeader>
-                <CardTitle>웨이퍼 맵</CardTitle>
-                <CardDescription>Die 분포 및 결함 위치 시각화</CardDescription>
+                <CardTitle>칩 맵</CardTitle>
+                <CardDescription>원형 웨이퍼 칩 분포 및 결함 위치 시각화</CardDescription>
               </CardHeader>
               <CardContent>
-                <WaferMapVisualization />
+                <WaferMapVisualization onStatsChange={setWaferMapStats} />
               </CardContent>
             </Card>
 
@@ -572,23 +644,27 @@ export default function WaferModelingPage() {
                       <CheckCircle2 className="w-5 h-5 text-success" />
                       <span className="font-medium text-foreground">Good Die</span>
                     </div>
-                    <span className="text-lg font-bold text-success">892</span>
+                    <span className="text-lg font-bold text-success">
+                      {waferMapStats?.good ?? 0}
+                    </span>
                   </div>
-                  
+
                   <div className="flex items-center justify-between p-3 bg-destructive/10 rounded-lg">
                     <div className="flex items-center gap-2">
                       <XCircle className="w-5 h-5 text-destructive" />
                       <span className="font-medium text-foreground">Bad Die</span>
                     </div>
-                    <span className="text-lg font-bold text-destructive">55</span>
+                    <span className="text-lg font-bold text-destructive">
+                      {waferMapStats?.bad ?? 0}
+                    </span>
                   </div>
 
-                  <div className="flex items-center justify-between p-3 bg-warning/10 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <AlertCircle className="w-5 h-5 text-warning" />
-                      <span className="font-medium text-foreground">재검사 필요</span>
-                    </div>
-                    <span className="text-lg font-bold text-warning">23</span>
+                  {/* 총합 표시 (검증용) */}
+                  <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                    <span className="font-medium text-foreground">총 다이 개수</span>
+                    <span className="text-lg font-bold text-foreground">
+                      {waferMapStats?.total ?? 0}
+                    </span>
                   </div>
                 </div>
 
@@ -615,7 +691,7 @@ export default function WaferModelingPage() {
             </Card>
           </div>
         </TabsContent>
-</Tabs>
+      </Tabs>
 
       {/* Analysis Result Modal */}
       <Dialog open={showResultModal} onOpenChange={setShowResultModal}>
@@ -629,7 +705,7 @@ export default function WaferModelingPage() {
               웨이퍼 분석이 성공적으로 완료되었습니다.
             </DialogDescription>
           </DialogHeader>
-          
+
           {analysisResult && (
             <div className="space-y-6 py-4">
               {/* Summary */}
@@ -640,12 +716,7 @@ export default function WaferModelingPage() {
                     {analysisResult.waferId}
                   </div>
                 </div>
-                <div className="p-4 rounded-lg bg-muted/50">
-                  <div className="text-sm text-muted-foreground">분석 일시</div>
-                  <div className="text-lg font-bold text-foreground mt-1">
-                    {analysisResult.processedAt}
-                  </div>
-                </div>
+                <ProcessedAtDisplay processedAt={analysisResult.processedAt} />
               </div>
 
               {/* Yield & Grade */}
@@ -663,9 +734,9 @@ export default function WaferModelingPage() {
                     {analysisResult.grade}
                   </div>
                   <div className="text-xs text-muted-foreground mt-3">
-                    {analysisResult.grade === "A+" ? "최상" : 
-                     analysisResult.grade === "A" ? "우수" : 
-                     analysisResult.grade === "B" ? "양호" : "보통"}
+                    {analysisResult.grade === "A+" ? "최상" :
+                      analysisResult.grade === "A" ? "우수" :
+                        analysisResult.grade === "B" ? "양호" : "보통"}
                   </div>
                 </div>
               </div>
@@ -687,13 +758,6 @@ export default function WaferModelingPage() {
                       <span className="font-medium text-foreground">Bad Die</span>
                     </div>
                     <span className="text-lg font-bold text-destructive">{analysisResult.badDie}</span>
-                  </div>
-                  <div className="flex items-center justify-between p-3 bg-warning/10 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <AlertCircle className="w-5 h-5 text-warning" />
-                      <span className="font-medium text-foreground">재검사 필요</span>
-                    </div>
-                    <span className="text-lg font-bold text-warning">{analysisResult.needRecheck}</span>
                   </div>
                 </div>
               </div>

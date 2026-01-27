@@ -1,24 +1,19 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect, memo, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Slider } from "@/components/ui/slider"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Progress } from "@/components/ui/progress"
 import { 
-  Layers, 
   RotateCcw, 
-  ZoomIn, 
-  ZoomOut,
   ChevronUp,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Eye,
   EyeOff,
   Info,
-  TrendingUp,
   AlertTriangle,
   CheckCircle2
 } from "lucide-react"
@@ -30,7 +25,7 @@ type LayerStatus = "good" | "defect" | "warning"
 interface StackLayer {
   id: number
   name: string
-  type: "DRAM" | "Logic" | "Base"
+  type: "DRAM"
   status: LayerStatus
   yield: number
   tsvAlignment: number
@@ -43,8 +38,6 @@ function generateStackLayers(count: number): StackLayer[] {
   const layers: StackLayer[] = []
   
   for (let i = count; i >= 1; i--) {
-    const isBase = i === 1
-    const isLogic = i === 2
     const rand = Math.random()
     
     let status: LayerStatus = "good"
@@ -53,10 +46,10 @@ function generateStackLayers(count: number): StackLayer[] {
 
     layers.push({
       id: i,
-      name: isBase ? "Base Die" : isLogic ? "Logic Die" : `DRAM Die ${i - 2}`,
-      type: isBase ? "Base" : isLogic ? "Logic" : "DRAM",
+      name: `DRAM ${i}`,
+      type: "DRAM",
       status,
-      yield: isBase ? 99.2 : isLogic ? 98.5 : 94 + Math.random() * 5,
+      yield: 94 + Math.random() * 5,
       tsvAlignment: 98 + Math.random() * 2,
       bondingQuality: 96 + Math.random() * 4,
       temperature: 75 + Math.random() * 10
@@ -66,14 +59,38 @@ function generateStackLayers(count: number): StackLayer[] {
   return layers
 }
 
-const STACK_CONFIGS = [
-  { label: "HBM2 (4단)", value: "4", layers: 4 },
-  { label: "HBM2E (8단)", value: "8", layers: 8 },
-  { label: "HBM3 (12단)", value: "12", layers: 12 },
-  { label: "HBM3E (16단)", value: "16", layers: 16 },
-]
+const STACK_COUNT = 4
+const STACK_LAYERS = 8
 
-function StackVisualization3D({ 
+function createSeededRandom(seed: number) {
+  let t = seed
+  return () => {
+    t += 0x6d2b79f5
+    let r = Math.imul(t ^ (t >>> 15), 1 | t)
+    r ^= r + Math.imul(r ^ (r >>> 7), 61 | r)
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+function generatePlanarMap(layerId: number, stackIndex: number, size: number = 32) {
+  const rand = createSeededRandom(layerId * 97 + stackIndex * 997)
+  const cells: LayerStatus[] = []
+
+  for (let i = 0; i < size * size; i++) {
+    const value = rand()
+    if (value < 0.04) {
+      cells.push("defect")
+    } else if (value < 0.1) {
+      cells.push("warning")
+    } else {
+      cells.push("good")
+    }
+  }
+
+  return cells
+}
+
+const StackVisualization3D = memo(function StackVisualization3D({ 
   layers, 
   selectedLayer,
   onSelectLayer,
@@ -98,20 +115,54 @@ function StackVisualization3D({
       return "#f59e0b"
     }
     
-    switch (layer.type) {
-      case "DRAM":
-        return "#3b82f6"
-      case "Logic":
-        return "#22c55e"
-      case "Base":
-        return "#f59e0b"
-      default:
-        return "#3b82f6"
-    }
+    return "#3b82f6"
   }
 
-  const centerX = 175
+  const centerX = 145
   const topY = 60
+
+  const moveToward = (from: { x: number; y: number }, to: { x: number; y: number }, dist: number) => {
+    const dx = to.x - from.x
+    const dy = to.y - from.y
+    const len = Math.hypot(dx, dy) || 1
+    return { x: from.x + (dx / len) * dist, y: from.y + (dy / len) * dist }
+  }
+
+  const getRoundedDiamondPath = (cx: number, cy: number, w: number, h: number, r: number) => {
+    const pts = [
+      { x: cx, y: cy },
+      { x: cx + w, y: cy + h / 2 },
+      { x: cx, y: cy + h },
+      { x: cx - w, y: cy + h / 2 },
+    ]
+
+    const edgeLens = pts.map((p, i) => {
+      const n = pts[(i + 1) % pts.length]
+      return Math.hypot(n.x - p.x, n.y - p.y)
+    })
+    const rr = Math.min(r, Math.min(...edgeLens) / 2)
+
+    const corners = pts.map((p, i) => {
+      const prev = pts[(i - 1 + pts.length) % pts.length]
+      const next = pts[(i + 1) % pts.length]
+      return {
+        p,
+        p1: moveToward(p, prev, rr),
+        p2: moveToward(p, next, rr),
+      }
+    })
+
+    let d = `M ${corners[0].p1.x} ${corners[0].p1.y}`
+    corners.forEach((c, i) => {
+      d += ` Q ${c.p.x} ${c.p.y} ${c.p2.x} ${c.p2.y}`
+      const next = corners[(i + 1) % corners.length]
+      d += ` L ${next.p1.x} ${next.p1.y}`
+    })
+    d += " Z"
+    return d
+  }
+
+  const basePath = getRoundedDiamondPath(centerX, topY, layerWidth, layerHeight, 20)
 
   return (
     <div className="relative w-full h-[450px] flex items-center justify-center overflow-hidden">
@@ -120,6 +171,8 @@ function StackVisualization3D({
         width="400" 
         height="450" 
         viewBox="0 0 350 400"
+        className="transition-transform duration-300 [&_circle]:opacity-0"
+        style={{ transform: "translateX(-50px)" }}
       >
         {/* Render from bottom to top so top layers appear on top */}
         {[...layers].reverse().map((layer, index) => {
@@ -130,27 +183,26 @@ function StackVisualization3D({
           const shouldHighlight = highlightDefects && isDefect
           const color = getLayerColor(layer, shouldHighlight)
           
-          const baseY = topY + yOffset
-          
-          // Diamond/rhombus shape points
-          const points = `
-            ${centerX},${baseY}
-            ${centerX + layerWidth},${baseY + layerHeight / 2}
-            ${centerX},${baseY + layerHeight}
-            ${centerX - layerWidth},${baseY + layerHeight / 2}
-          `
-
           return (
             <g 
               key={layer.id}
               className="cursor-pointer"
               onClick={() => onSelectLayer(isSelected ? null : layer.id)}
+              style={{
+                transform: `translateY(${yOffset}px)`,
+                transition: "transform 0.35s ease"
+              }}
             >
-              <polygon
-                points={points}
+              <path
+                d={basePath}
+                fill="rgba(0,0,0,0.18)"
+                style={{ transform: "translateY(2px)" }}
+              />
+              <path
+                d={basePath}
                 fill={color}
                 stroke={isSelected ? "#fff" : "rgba(0,0,0,0.3)"}
-                strokeWidth={isSelected ? "3" : "1"}
+                strokeWidth={isSelected ? 3.5 : 1.5}
                 style={{
                   filter: isSelected ? "drop-shadow(0 0 15px rgba(255,255,255,0.5))" : "none",
                   transition: "all 0.3s ease"
@@ -161,11 +213,10 @@ function StackVisualization3D({
               {shouldHighlight && (
                 <circle
                   cx={centerX}
-                  cy={baseY + layerHeight / 2}
+                  cy={topY + yOffset + layerHeight / 2}
                   r="8"
                   fill="#fff"
-                  opacity="0.9"
-                  className="animate-pulse"
+                  opacity="0"
                 />
               )}
             </g>
@@ -174,7 +225,7 @@ function StackVisualization3D({
       </svg>
 
       {/* Layer Labels - positioned to the right */}
-      <div className="absolute right-8 top-1/2 -translate-y-1/2 space-y-2">
+      <div className="absolute right-8 top-2 bottom-4 flex flex-col justify-start gap-1">
         {layers.map((layer) => {
           const isSelected = selectedLayer === layer.id
           const isDefect = layer.status !== "good"
@@ -185,7 +236,7 @@ function StackVisualization3D({
             <div 
               key={layer.id}
               className={cn(
-                "flex items-center gap-3 px-4 py-2 rounded-lg cursor-pointer transition-all",
+                "flex items-center gap-3 px-3 py-1.5 rounded-lg cursor-pointer transition-all",
                 isSelected ? "bg-white/20" : "bg-transparent hover:bg-white/10"
               )}
               onClick={() => onSelectLayer(isSelected ? null : layer.id)}
@@ -216,9 +267,55 @@ function StackVisualization3D({
       </div>
     </div>
   )
-}
+})
 
-function LayerDetailPanel({ layer }: { layer: StackLayer }) {
+const LayerPlanarView = memo(function LayerPlanarView({ layer, stackIndex }: { layer: StackLayer; stackIndex: number }) {
+  const gridSize = 32
+  const [cells, setCells] = useState<LayerStatus[]>([])
+
+  // 클라이언트에서만 데이터 생성 (hydration 에러 방지)
+  useEffect(() => {
+    setCells(generatePlanarMap(layer.id, stackIndex, gridSize))
+  }, [layer.id, stackIndex, gridSize])
+
+  const cellColors: Record<LayerStatus, string> = {
+    good: "bg-success/90",
+    warning: "bg-warning/90",
+    defect: "bg-destructive/90"
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <h4 className="font-semibold text-foreground">평면 이미지</h4>
+          <p className="text-xs text-muted-foreground">32x32 칩 구조</p>
+        </div>
+        <Badge variant="outline" className="text-xs">
+          {layer.name}
+        </Badge>
+      </div>
+      <div className="max-w-sm">
+        <div
+          className="grid gap-px rounded-lg border border-border bg-muted/20 p-2"
+          style={{
+            gridTemplateColumns: `repeat(${gridSize}, 1fr)`,
+            gridTemplateRows: `repeat(${gridSize}, 1fr)`
+          }}
+        >
+          {cells.map((status, index) => (
+            <div
+              key={`${layer.id}-${index}`}
+              className={cn("w-full h-full rounded-[1px]", cellColors[status])}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+})
+
+const LayerDetailPanel = memo(function LayerDetailPanel({ layer }: { layer: StackLayer }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -226,7 +323,8 @@ function LayerDetailPanel({ layer }: { layer: StackLayer }) {
         <Badge
           variant={layer.status === "good" ? "default" : layer.status === "warning" ? "secondary" : "destructive"}
           className={cn(
-            layer.status === "good" && "bg-success text-success-foreground"
+            layer.status === "good" && "bg-success text-success-foreground",
+            layer.status === "warning" && "bg-warning text-warning-foreground"
           )}
         >
           {layer.status === "good" ? "정상" : layer.status === "warning" ? "주의" : "결함"}
@@ -267,9 +365,9 @@ function LayerDetailPanel({ layer }: { layer: StackLayer }) {
       </div>
     </div>
   )
-}
+})
 
-function StackQualityGrade({ layers }: { layers: StackLayer[] }) {
+const StackQualityGrade = memo(function StackQualityGrade({ layers }: { layers: StackLayer[] }) {
   const goodLayers = layers.filter(l => l.status === "good").length
   const warningLayers = layers.filter(l => l.status === "warning").length
   const defectLayers = layers.filter(l => l.status === "defect").length
@@ -331,19 +429,20 @@ function StackQualityGrade({ layers }: { layers: StackLayer[] }) {
       </CardContent>
     </Card>
   )
-}
+})
 
 export default function StackingVisualizationPage() {
-  const [stackConfig, setStackConfig] = useState("8")
-  const [rotationY, setRotationY] = useState(0) // Declare rotationY state
+  const [stackIndex, setStackIndex] = useState(0)
   const [selectedLayer, setSelectedLayer] = useState<number | null>(null)
   const [expandedView, setExpandedView] = useState(false)
   const [highlightDefects, setHighlightDefects] = useState(true)
 
-  const layers = useMemo(() => {
-    const config = STACK_CONFIGS.find(c => c.value === stackConfig)
-    return generateStackLayers(config?.layers || 8)
-  }, [stackConfig])
+  const [layers, setLayers] = useState<StackLayer[]>([])
+
+  // 클라이언트에서만 랜덤 데이터 생성 (hydration 에러 방지)
+  useEffect(() => {
+    setLayers(generateStackLayers(STACK_LAYERS))
+  }, [stackIndex])
 
   const selectedLayerData = selectedLayer ? layers.find(l => l.id === selectedLayer) : null
 
@@ -356,25 +455,12 @@ export default function StackingVisualizationPage() {
           <p className="text-sm text-muted-foreground">TSV 기반 3D 스택 시각화 및 품질 분석</p>
         </div>
         
-        <div className="flex items-center gap-2">
-          <Select value={stackConfig} onValueChange={setStackConfig}>
-            <SelectTrigger className="w-[140px]">
-              <SelectValue placeholder="스택 구성" />
-            </SelectTrigger>
-            <SelectContent>
-              {STACK_CONFIGS.map(config => (
-                <SelectItem key={config.value} value={config.value}>
-                  {config.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <div className="flex items-center gap-2" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* 3D Visualization */}
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-3">
           <Card>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
@@ -383,6 +469,25 @@ export default function StackingVisualizationPage() {
                   <CardDescription>레이어를 클릭하여 상세 정보 확인</CardDescription>
                 </div>
                 <div className="flex items-center gap-1">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setStackIndex((prev) => (prev - 1 + STACK_COUNT) % STACK_COUNT)}
+                    title="이전 스택"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setStackIndex((prev) => (prev + 1) % STACK_COUNT)}
+                    title="다음 스택"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                  <span className="px-2 text-xs text-muted-foreground">
+                    Stack {stackIndex + 1} / {STACK_COUNT}
+                  </span>
                   <Button
                     variant="outline"
                     size="icon"
@@ -411,28 +516,32 @@ export default function StackingVisualizationPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <StackVisualization3D
-                layers={layers}
-                
-                selectedLayer={selectedLayer}
-                onSelectLayer={setSelectedLayer}
-                expandedView={expandedView}
-                highlightDefects={highlightDefects}
-              />
-
-              {/* Legend */}
-              <div className="mt-4 flex items-center justify-center gap-6 text-sm">
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded-sm bg-primary" />
-                  <span className="text-muted-foreground">DRAM Die</span>
+              <div className="flex flex-col lg:flex-row items-stretch gap-6">
+                <div
+                  className={cn(
+                    "flex-1 transition-all duration-500 overflow-hidden",
+                    selectedLayerData
+                      ? "opacity-100 translate-x-0 max-h-[520px]"
+                      : "opacity-0 -translate-x-4 max-h-0 lg:max-h-[520px] lg:max-w-0 lg:opacity-0 lg:-translate-x-4 pointer-events-none"
+                  )}
+                >
+                  {selectedLayerData && (
+                    <LayerPlanarView layer={selectedLayerData} stackIndex={stackIndex} />
+                  )}
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded-sm bg-accent" />
-                  <span className="text-muted-foreground">Logic Die</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded-sm bg-muted border border-muted-foreground/50" />
-                  <span className="text-muted-foreground">Base Die</span>
+                <div
+                  className={cn(
+                    "flex-1 transition-all duration-500",
+                    selectedLayerData ? "lg:translate-x-6" : "translate-x-0"
+                  )}
+                >
+                  <StackVisualization3D
+                    layers={layers}
+                    selectedLayer={selectedLayer}
+                    onSelectLayer={setSelectedLayer}
+                    expandedView={expandedView}
+                    highlightDefects={highlightDefects}
+                  />
                 </div>
               </div>
             </CardContent>
@@ -440,7 +549,7 @@ export default function StackingVisualizationPage() {
         </div>
 
         {/* Side Panel */}
-        <div className="space-y-6">
+        <div className="space-y-6 lg:col-span-1">
           {/* Quality Grade */}
           <StackQualityGrade layers={layers} />
 
