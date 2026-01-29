@@ -324,7 +324,7 @@ export default function WaferModelingPage() {
       }
 
       const uploadData = await uploadResponse.json()
-      const lotNames: string[] = uploadData.lotNames
+      const lotNames: string[] = uploadData.lot_names
       const batchId = uploadData.batchId
 
       // 개별 로트 순차 분석
@@ -339,7 +339,7 @@ export default function WaferModelingPage() {
         setCurrentStep(3)
 
         // [Step 3] Analyze: 실제 분석 수행
-        const analyzeResponse = await fetch(`${API_URL}/wafer/${lotName}/analyze?batch_id=${batchId}`, {
+        const analyzeResponse = await fetch(`${API_URL}/wafer/${lotName}/analyze`, {
           method: 'POST'
         })
 
