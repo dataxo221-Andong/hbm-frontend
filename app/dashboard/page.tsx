@@ -31,6 +31,8 @@ import {
 import { cn } from "@/lib/utils"
 import { WaferMapVisualization } from "@/components/wafer-map"
 
+
+
 // Process flow steps
 const PROCESS_STEPS = [
   { id: 1, name: "데이터 업로드", description: ".pkl 분석 데이터 입력" },
@@ -299,14 +301,18 @@ export default function WaferModelingPage() {
       setIsProcessing(true)
 
       const formData = new FormData()
-      formData.append('wafer_image', uploadedFiles[0])
+      // 다중 파일 추가
+      uploadedFiles.forEach(file => {
+        formData.append('wafer_image', file)
+      })
 
       // Step 1: Uploading
       setCurrentStep(1)
 
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://3.39.251.229:5000'
+      // alert(API_URL)
 
-      // [Step 1] Upload: 접수 및 ID 발급
+      // [Step 1] Upload: 접수 및 ID 발급 (일괄 업로드)
       const uploadResponse = await fetch(`${API_URL}/wafer/upload`, {
         method: 'POST',
         body: formData,
@@ -318,76 +324,85 @@ export default function WaferModelingPage() {
       }
 
       const uploadData = await uploadResponse.json()
-      const lotName = uploadData.lotName
+      const lotNames: string[] = uploadData.lotNames
+      const batchId = uploadData.batchId
 
-      // [Step 2] Processing Animation (사용자 경험용)
-      for (let step = 2; step <= PROCESS_STEPS.length; step++) {
-        setCurrentStep(step)
-        // 백엔드 분석 시간을 벌어주면서 자연스러운 진행 연출
-        await new Promise(resolve => setTimeout(resolve, 800))
+      // 개별 로트 순차 분석
+      let lastResult: AnalysisResult | null = null
+
+      for (let i = 0; i < lotNames.length; i++) {
+        const lotName = lotNames[i]
+
+        // [Step 2] Processing Animation (각 웨이퍼마다 간단히 보여줌)
+        // 첫 번째 웨이퍼일 때만 전체 단계 애니메이션 보여주거나, 
+        // 그냥 단순히 분석 단계(3)로 표시
+        setCurrentStep(3)
+
+        // [Step 3] Analyze: 실제 분석 수행
+        const analyzeResponse = await fetch(`${API_URL}/wafer/${lotName}/analyze?batch_id=${batchId}`, {
+          method: 'POST'
+        })
+
+        if (!analyzeResponse.ok) {
+          console.error(`Analysis failed for ${lotName}`)
+          continue // 실패해도 다음거 계속 진행
+        }
+
+        const analyzeData = await analyzeResponse.json()
+        const resultData = analyzeData.result
+
+        // Map Backend Response to UI Model
+        const totalDie = resultData.dieCount || 1024
+        const goodDieCount = totalDie - (resultData.defectCount || 0)
+        const badDieCount = resultData.defectCount || 0
+        const yieldVal = totalDie > 0
+          ? parseFloat(((goodDieCount / totalDie) * 100).toFixed(1))
+          : 0
+
+        const result: AnalysisResult = {
+          waferId: analyzeData.lotName,
+          yield: yieldVal,
+          grade: resultData.totalGrade || 'F',
+          goodDie: goodDieCount,
+          badDie: badDieCount,
+          defects: [
+            { type: resultData.failureType, count: badDieCount, percent: 100 }
+          ],
+          processedAt: new Date().toISOString(),
+        }
+
+        // Update wafers list (하나씩 추가)
+        setWafers(prev => [
+          {
+            id: result.waferId,
+            batch: "BATCH-001",
+            status: "completed" as const,
+            yield: result.yield,
+            grade: result.grade,
+          },
+          ...prev,
+        ])
+
+        lastResult = result
+        // 다음 분석 전 살짝 대기 (부하 조절)
+        await new Promise(resolve => setTimeout(resolve, 500))
       }
 
-      // [Step 3] Analyze: 실제 분석 수행
-      const analyzeResponse = await fetch(`${API_URL}/wafer/${lotName}/analyze`, {
-        method: 'POST'
-      })
-
-      if (!analyzeResponse.ok) {
-        const errorData = await analyzeResponse.json().catch(() => ({}));
-        throw new Error(errorData.error || `Analysis failed: ${analyzeResponse.statusText}`)
+      if (lastResult) {
+        setAnalysisResult(lastResult)
+        setWaferMapStats({
+          good: lastResult.goodDie,
+          bad: lastResult.badDie,
+          total: lastResult.goodDie + lastResult.badDie
+        })
+        setShowResultModal(true)
       }
-
-      const analyzeData = await analyzeResponse.json()
-      const resultData = analyzeData.result // { failureType, totalGrade, defectDensity, dieCount, ... }
-
-      // Map Backend Response to UI Model
-      const totalDie = resultData.dieCount || 1024
-      const goodDieCount = totalDie - (resultData.defectCount || 0)
-      const badDieCount = resultData.defectCount || 0
-
-      // 수율 계산 (Good / Total) * 100
-      const yieldVal = totalDie > 0
-        ? parseFloat(((goodDieCount / totalDie) * 100).toFixed(1))
-        : 0
-
-      const result: AnalysisResult = {
-        waferId: analyzeData.lotName,
-        yield: yieldVal,
-        grade: resultData.totalGrade || 'F',
-        goodDie: goodDieCount,
-        badDie: badDieCount,
-        defects: [
-          { type: resultData.failureType, count: badDieCount, percent: 100 }
-        ],
-        processedAt: new Date().toISOString(),
-      }
-
-      // Update wafers list
-      setWafers(prev => [
-        {
-          id: result.waferId,
-          batch: "BATCH-001",
-          status: "completed" as const,
-          yield: result.yield,
-          grade: result.grade,
-        },
-        ...prev,
-      ])
-
-      setAnalysisResult(result)
-      setWaferMapStats({
-        good: goodDieCount,
-        bad: badDieCount,
-        total: totalDie
-      })
 
       setCurrentStep(PROCESS_STEPS.length + 1)
       setIsProcessing(false)
-      setShowResultModal(true)
 
     } catch (error) {
       console.error("Analysis Failed:", error)
-      // Show specific error message for easier debugging
       alert(`분석 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`)
       setIsProcessing(false)
       setCurrentStep(0)
