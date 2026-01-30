@@ -68,6 +68,7 @@ export default function AuthPage() {
   })
 
   const handleLogin = async (e: React.FormEvent) => {
+
     e.preventDefault()
 
     // 입력 검증

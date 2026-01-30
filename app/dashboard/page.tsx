@@ -309,6 +309,7 @@ export default function WaferModelingPage() {
       // Step 1: Uploading
       setCurrentStep(1)
 
+      console.log('Current NEXT_PUBLIC_API_URL:', process.env.NEXT_PUBLIC_API_URL)
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://3.39.251.229:5000'
       // alert(API_URL)
 

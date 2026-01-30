@@ -13,11 +13,11 @@ export async function login(email: string, password: string): Promise<LoginRespo
     method: 'POST',
     body: JSON.stringify({ email, password }),
   });
-  
+
   // 토큰과 사용자 정보 저장
   saveToken(response.token);
   saveUser(response.user);
-  
+
   return response;
 }
 
@@ -34,11 +34,11 @@ export async function register(
     method: 'POST',
     body: JSON.stringify({ name, email, password, confirmPassword }),
   });
-  
+
   // 토큰과 사용자 정보 저장
   saveToken(response.token);
   saveUser(response.user);
-  
+
   return response;
 }
 
