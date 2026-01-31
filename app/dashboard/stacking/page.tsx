@@ -5,8 +5,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { 
-  RotateCcw, 
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  RotateCcw,
   ChevronUp,
   ChevronDown,
   ChevronLeft,
@@ -15,7 +16,8 @@ import {
   EyeOff,
   Info,
   AlertTriangle,
-  CheckCircle2
+  CheckCircle2,
+  Database
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -32,45 +34,38 @@ interface StackLayer {
   tsvAlignment: number
   bondingQuality: number
   temperature: number
+  chipId?: string
+  failureType?: string
+  clusterLabel?: number
 }
 
-// Generate demo HBM stack data
-function generateStackLayers(count: number): StackLayer[] {
-  const layers: StackLayer[] = []
-  
-  for (let i = count; i >= 1; i--) {
-    const rand = Math.random()
-    
-    let status: LayerStatus = "good"
-    if (rand < 0.05) status = "defect"
-    else if (rand < 0.15) status = "warning"
-
-    // 칩 UID 생성 (예: CHIP-2024-001-A1B2C3D4)
-    const generateChipUid = (layerId: number) => {
-      const prefix = "CHIP-2024-"
-      const id = String(layerId).padStart(3, '0')
-      const randomHex = Math.floor(Math.random() * 0xFFFFFF).toString(16).toUpperCase().padStart(6, '0')
-      return `${prefix}${id}-${randomHex}`
-    }
-    
-    layers.push({
-      id: i,
-      name: `DRAM ${i}`,
-      chipUid: generateChipUid(i),
-      type: "DRAM",
-      status,
-      yield: 94 + Math.random() * 5,
-      tsvAlignment: 98 + Math.random() * 2,
-      bondingQuality: 96 + Math.random() * 4,
-      temperature: 75 + Math.random() * 10
-    })
-  }
-  
-  return layers
+// API Response Types
+interface StackResponse {
+  batch_id: string
+  total_chips: number
+  stacks_formed: number
+  stacks: {
+    stack_id: string
+    score: string
+    layers: {
+      layer_idx: number
+      chip_id: string
+      cluster_label: number
+      inferred_type: string
+      failure_type: string
+    }[]
+  }[]
 }
 
-const STACK_COUNT = 4
 const STACK_LAYERS = 8
+
+// Helper to determine status from failure type
+const getStatusFromFailure = (failureType: string): LayerStatus => {
+  if (failureType === 'None' || failureType === 'Normal') return 'good';
+  // Some minor defects could be warning
+  if (['Loc', 'Edge-Loc'].includes(failureType)) return 'warning';
+  return 'defect';
+}
 
 function createSeededRandom(seed: number) {
   let t = seed
@@ -82,21 +77,25 @@ function createSeededRandom(seed: number) {
   }
 }
 
-function generatePlanarMap(layerId: number, stackIndex: number, size: number = 32) {
+function generatePlanarMap(layerId: number, stackIndex: number, size: number = 32, statusArg?: LayerStatus) {
+  // If we had real wafer map data, we would use it here.
+  // For now, generate consistent map based on status
   const rand = createSeededRandom(layerId * 97 + stackIndex * 997)
   const cells: LayerStatus[] = []
 
   for (let i = 0; i < size * size; i++) {
     const value = rand()
-    if (value < 0.04) {
+    // If layer is defect, generates more defect cells
+    const defectThreshold = statusArg === 'defect' ? 0.3 : (statusArg === 'warning' ? 0.1 : 0.01)
+
+    if (value < defectThreshold) {
       cells.push("defect")
-    } else if (value < 0.1) {
+    } else if (value < defectThreshold + 0.05) {
       cells.push("warning")
     } else {
       cells.push("good")
     }
   }
-
   return cells
 }
 
@@ -104,41 +103,41 @@ function generatePlanarMap(layerId: number, stackIndex: number, size: number = 3
 function generateTSVDefectMap(layerId: number, stackIndex: number, size: number = 32) {
   const rand = createSeededRandom(layerId * 137 + stackIndex * 997)
   const cells: LayerStatus[] = []
-  
+
   // TSV 불량은 보통 클러스터링된 패턴으로 나타남
   // 중심부, 가장자리, 특정 영역에 집중되는 경향
-  
+
   for (let row = 0; row < size; row++) {
     for (let col = 0; col < size; col++) {
       const x = col / size // 0 ~ 1
       const y = row / size // 0 ~ 1
       const centerX = 0.5
       const centerY = 0.5
-      
+
       // 중심으로부터의 거리
       const distFromCenter = Math.sqrt(
         Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2)
       )
-      
+
       // 가장자리 거리
       const distFromEdge = Math.min(x, 1 - x, y, 1 - y)
-      
+
       // TSV 불량 확률 계산
       let defectProbability = 0
-      
+
       // 중심부 불량 (원형 패턴)
       if (distFromCenter < 0.3) {
         defectProbability += 0.08 * (1 - distFromCenter / 0.3)
       }
-      
+
       // 가장자리 불량 (링 패턴)
       if (distFromEdge < 0.15) {
         defectProbability += 0.12 * (1 - distFromEdge / 0.15)
       }
-      
+
       // 랜덤 불량 (산발적)
       defectProbability += 0.02
-      
+
       // 클러스터링 효과 (주변에 불량이 있으면 확률 증가)
       if (row > 0 && col > 0) {
         const prevIndex = (row - 1) * size + (col - 1)
@@ -148,7 +147,7 @@ function generateTSVDefectMap(layerId: number, stackIndex: number, size: number 
           defectProbability += 0.08
         }
       }
-      
+
       const value = rand()
       if (value < defectProbability) {
         cells.push("defect")
@@ -163,13 +162,13 @@ function generateTSVDefectMap(layerId: number, stackIndex: number, size: number 
   return cells
 }
 
-const StackVisualization3D = memo(function StackVisualization3D({ 
-  layers, 
+const StackVisualization3D = memo(function StackVisualization3D({
+  layers,
   selectedLayer,
   onSelectLayer,
   expandedView,
   highlightDefects
-}: { 
+}: {
   layers: StackLayer[]
   selectedLayer: number | null
   onSelectLayer: (id: number | null) => void
@@ -180,13 +179,13 @@ const StackVisualization3D = memo(function StackVisualization3D({
   const layerHeight = 70
   const stackGap = expandedView ? 22 : 16
 
-  const getLayerColor = (layer: StackLayer): string => {
+  const getLayerColor = (layer: StackLayer, shouldHighlight: boolean): string => {
     // 상태에 따라 색상 결정: 정상(파란색), 주의(주황색)
     if (layer.status === "warning" || layer.status === "defect") {
       return "#f59e0b" // 주황색 (주의)
     }
-    
-    return "#3b82f6" // 파란색 (정상)
+
+    return "#3b82f6"
   }
 
   const centerX = 145
@@ -238,9 +237,9 @@ const StackVisualization3D = memo(function StackVisualization3D({
   return (
     <div className="relative w-full h-[450px] flex items-center justify-center overflow-hidden">
       {/* Isometric Stack Container - Top down view */}
-      <svg 
-        width="400" 
-        height="450" 
+      <svg
+        width="400"
+        height="450"
         viewBox="0 0 350 400"
         className="transition-transform duration-300 [&_circle]:opacity-0"
         style={{ transform: "translateX(-50px)" }}
@@ -250,10 +249,12 @@ const StackVisualization3D = memo(function StackVisualization3D({
           const isSelected = selectedLayer === layer.id
           const actualIndex = layers.length - 1 - index
           const yOffset = actualIndex * stackGap
-          const color = getLayerColor(layer)
-          
+          const isDefect = layer.status !== "good"
+          const shouldHighlight = highlightDefects && isDefect
+          const color = getLayerColor(layer, shouldHighlight)
+
           return (
-            <g 
+            <g
               key={layer.id}
               className="cursor-pointer"
               onClick={() => onSelectLayer(isSelected ? null : layer.id)}
@@ -277,7 +278,17 @@ const StackVisualization3D = memo(function StackVisualization3D({
                   transition: "all 0.3s ease"
                 }}
               />
-              
+
+              {/* Highlight indicator for defects */}
+              {shouldHighlight && (
+                <circle
+                  cx={centerX}
+                  cy={topY + yOffset + layerHeight / 2}
+                  r="8"
+                  fill="#fff"
+                  opacity="0.8"
+                />
+              )}
             </g>
           )
         })}
@@ -287,10 +298,12 @@ const StackVisualization3D = memo(function StackVisualization3D({
       <div className="absolute right-8 top-2 bottom-4 flex flex-col justify-start gap-1">
         {layers.map((layer) => {
           const isSelected = selectedLayer === layer.id
-          const color = getLayerColor(layer)
-          
+          const isDefect = layer.status !== "good"
+          const shouldHighlight = highlightDefects && isDefect
+          const color = getLayerColor(layer, shouldHighlight)
+
           return (
-            <div 
+            <div
               key={layer.id}
               className={cn(
                 "flex items-center gap-3 px-3 py-1.5 rounded-lg cursor-pointer transition-all",
@@ -298,7 +311,7 @@ const StackVisualization3D = memo(function StackVisualization3D({
               )}
               onClick={() => onSelectLayer(isSelected ? null : layer.id)}
             >
-              <div 
+              <div
                 className="w-3 h-3 rounded-sm"
                 style={{ backgroundColor: color }}
               />
@@ -310,7 +323,7 @@ const StackVisualization3D = memo(function StackVisualization3D({
                   {layer.name}
                 </div>
                 <div className="text-xs text-white/60">
-                  {layer.yield.toFixed(1)}%
+                  {layer.chipId ? layer.chipId.slice(-6) : `Yield: ${layer.yield.toFixed(1)}%`}
                 </div>
               </div>
             </div>
@@ -332,7 +345,7 @@ const LayerPlanarView = memo(function LayerPlanarView({ layer, stackIndex }: { l
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const imageSize = 400 // 이미지 크기 (픽셀)
 
-  // 클라이언트에서만 데이터 생성 (hydration 에러 방지)
+  // 클라이언트에서만 데이터 생성
   useEffect(() => {
     // TSV 불량 패턴 사용
     setCells(generateTSVDefectMap(layer.id, stackIndex, gridSize))
@@ -367,7 +380,7 @@ const LayerPlanarView = memo(function LayerPlanarView({ layer, stackIndex }: { l
     cells.forEach((status, index) => {
       const row = Math.floor(index / gridSize)
       const col = index % gridSize
-      
+
       const x = col * cellSize
       const y = row * cellSize
 
@@ -396,7 +409,7 @@ const LayerPlanarView = memo(function LayerPlanarView({ layer, stackIndex }: { l
           {layer.name}
         </Badge>
       </div>
-      
+
       {/* 범례 */}
       <div className="flex items-center gap-4 text-xs">
         <div className="flex items-center gap-1.5">
@@ -468,6 +481,21 @@ const LayerDetailPanel = memo(function LayerDetailPanel({ layer }: { layer: Stac
       </div>
 
       <div className="space-y-3">
+        <div className="p-3 bg-muted/30 rounded-md text-sm">
+          <div className="flex justify-between py-1 border-b border-border/50">
+            <span className="text-muted-foreground">Chip ID</span>
+            <span className="font-mono">{layer.chipId || 'N/A'}</span>
+          </div>
+          <div className="flex justify-between py-1 border-b border-border/50">
+            <span className="text-muted-foreground">유형</span>
+            <span className="font-medium">{layer.failureType || 'N/A'}</span>
+          </div>
+          <div className="flex justify-between py-1 pt-2">
+            <span className="text-muted-foreground">Cluster</span>
+            <span className="font-medium">{layer.clusterLabel}</span>
+          </div>
+        </div>
+
         <div>
           <div className="flex justify-between text-sm mb-1">
             <span className="text-muted-foreground">수율</span>
@@ -511,7 +539,7 @@ const StackQualityGrade = memo(function StackQualityGrade({ layers }: { layers: 
 
   let grade = "A"
   let gradeColor = "text-success"
-  
+
   // 등급 기준: 주의 레이어 수에 따라 결정
   if (warningLayers > 2) {
     grade = "C"
@@ -520,6 +548,8 @@ const StackQualityGrade = memo(function StackQualityGrade({ layers }: { layers: 
     grade = "B"
     gradeColor = "text-primary"
   }
+
+  if (layers.length === 0) return null;
 
   return (
     <Card>
@@ -532,7 +562,7 @@ const StackQualityGrade = memo(function StackQualityGrade({ layers }: { layers: 
             {grade}
           </div>
         </div>
-        
+
         <div className="space-y-2 text-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -564,15 +594,104 @@ export default function StackingVisualizationPage() {
   const [expandedView, setExpandedView] = useState(false)
   const [highlightDefects, setHighlightDefects] = useState(true)
   const [isLayerDetailExpanded, setIsLayerDetailExpanded] = useState(true)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const [layers, setLayers] = useState<StackLayer[]>([])
+  const [allStacks, setAllStacks] = useState<any[]>([]) // Raw stack data from API
+  const [scenarios, setScenarios] = useState<string[]>([])
+  const [selectedScenario, setSelectedScenario] = useState<string>("")
 
-  // 클라이언트에서만 랜덤 데이터 생성 (hydration 에러 방지)
+  // 1. Load available scenarios on mount
   useEffect(() => {
-    setLayers(generateStackLayers(STACK_LAYERS))
-  }, [stackIndex])
+    const fetchScenarios = async () => {
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/stack/scenarios`)
+        if (res.ok) {
+          const data = await res.json()
+          setScenarios(data.scenarios || [])
+          // Select first scenario if available
+          if (data.scenarios && data.scenarios.length > 0) {
+            setSelectedScenario(data.scenarios[0])
+          }
+        }
+      } catch (e) {
+        console.error("Failed to fetch scenarios", e)
+      }
+    }
+    fetchScenarios()
+  }, [])
+
+  // 2. Fetch stack analysis when scenario changes
+  useEffect(() => {
+    if (!selectedScenario) return;
+
+    const fetchAnalysis = async () => {
+      setIsLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/stack/analyze`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ batch_id: selectedScenario })
+        })
+
+        if (!res.ok) {
+          throw new Error(`Analysis failed: ${res.statusText}`)
+        }
+
+        const data: StackResponse = await res.json()
+
+        if (data.stacks && data.stacks.length > 0) {
+          setAllStacks(data.stacks)
+          setStackIndex(0) // Reset to first stack
+        } else {
+          setAllStacks([])
+          setLayers([])
+          setError("No valid stacks could be formed from this data.")
+        }
+      } catch (e: any) {
+        console.error(e)
+        setError(e.message || "Failed to load analysis")
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchAnalysis()
+  }, [selectedScenario])
+
+  // 3. Update current layers when stackIndex or allStacks changes
+  useEffect(() => {
+    if (allStacks.length > 0 && allStacks[stackIndex]) {
+      const currentStackData = allStacks[stackIndex]
+
+      // Map API layers to Frontend StackLayer model
+      const mappedLayers: StackLayer[] = currentStackData.layers.map((l: any) => ({
+        id: l.layer_idx,
+        name: `Layer ${l.layer_idx}`,
+        type: "DRAM",
+        status: getStatusFromFailure(l.failure_type),
+        // Random simulation metrics (API doesn't provide these yet)
+        yield: 90 + Math.random() * 10,
+        tsvAlignment: 95 + Math.random() * 5,
+        bondingQuality: 92 + Math.random() * 8,
+        temperature: 70 + Math.random() * 15,
+
+        // API Data
+        chipId: l.chip_id,
+        failureType: l.failure_type,
+        clusterLabel: l.cluster_label
+      }))
+
+      setLayers(mappedLayers)
+    } else {
+      setLayers([])
+    }
+  }, [stackIndex, allStacks])
 
   const selectedLayerData = selectedLayer ? layers.find(l => l.id === selectedLayer) : null
+  const stackCount = allStacks.length
 
   return (
     <div className="space-y-6">
@@ -582,9 +701,32 @@ export default function StackingVisualizationPage() {
           <h2 className="text-lg font-semibold text-foreground">HBM 적층 구조</h2>
           <p className="text-sm text-muted-foreground">TSV 기반 3D 스택 시각화 및 품질 분석</p>
         </div>
-        
-        <div className="flex items-center gap-2" />
+
+        <div className="flex items-center gap-2">
+          <Database className="w-4 h-4 text-muted-foreground" />
+          <Select value={selectedScenario} onValueChange={setSelectedScenario} disabled={isLoading}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="시나리오 선택" />
+            </SelectTrigger>
+            <SelectContent>
+              {scenarios.map(s => (
+                <SelectItem key={s} value={s}>{s}</SelectItem>
+              ))}
+              {scenarios.length === 0 && <SelectItem value="none" disabled>No Data</SelectItem>}
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={() => setSelectedScenario(selectedScenario)} disabled={isLoading}>
+            {isLoading ? "분석 중..." : "새로고침"}
+          </Button>
+        </div>
       </div>
+
+      {error && (
+        <div className="p-4 rounded-md bg-destructive/10 text-destructive border border-destructive/20">
+          <AlertTriangle className="w-4 h-4 inline mr-2" />
+          {error}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* 3D Visualization */}
@@ -594,13 +736,18 @@ export default function StackingVisualizationPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>3D 스택 뷰</CardTitle>
-                  <CardDescription>레이어를 클릭하여 상세 정보 확인</CardDescription>
+                  <CardDescription>
+                    {allStacks.length > 0
+                      ? `Stack ID: ${allStacks[stackIndex]?.stack_id} (Score: ${allStacks[stackIndex]?.score})`
+                      : "데이터가 없습니다."}
+                  </CardDescription>
                 </div>
                 <div className="flex items-center gap-1">
                   <Button
                     variant="outline"
                     size="icon"
-                    onClick={() => setStackIndex((prev) => (prev - 1 + STACK_COUNT) % STACK_COUNT)}
+                    onClick={() => setStackIndex((prev) => (prev - 1 + stackCount) % stackCount)}
+                    disabled={stackCount <= 1}
                     title="이전 스택"
                   >
                     <ChevronLeft className="w-4 h-4" />
@@ -608,13 +755,14 @@ export default function StackingVisualizationPage() {
                   <Button
                     variant="outline"
                     size="icon"
-                    onClick={() => setStackIndex((prev) => (prev + 1) % STACK_COUNT)}
+                    onClick={() => setStackIndex((prev) => (prev + 1) % stackCount)}
+                    disabled={stackCount <= 1}
                     title="다음 스택"
                   >
                     <ChevronRight className="w-4 h-4" />
                   </Button>
-                  <span className="px-2 text-xs text-muted-foreground">
-                    Stack {stackIndex + 1} / {STACK_COUNT}
+                  <span className="px-2 text-xs text-muted-foreground min-w-[80px] text-center">
+                    Stack {stackCount > 0 ? stackIndex + 1 : 0} / {stackCount}
                   </span>
                   <Button
                     variant="outline"
@@ -632,46 +780,44 @@ export default function StackingVisualizationPage() {
                   >
                     {highlightDefects ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                   </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => {}}
-                    title="초기화"
-                  >
-                    <RotateCcw className="w-4 h-4" />
-                  </Button>
                 </div>
               </div>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-col lg:flex-row items-stretch gap-6">
-                <div
-                  className={cn(
-                    "flex-1 transition-all duration-500 overflow-hidden",
-                    selectedLayerData
-                      ? "opacity-100 translate-x-0 max-h-[520px]"
-                      : "opacity-0 -translate-x-4 max-h-0 lg:max-h-[520px] lg:max-w-0 lg:opacity-0 lg:-translate-x-4 pointer-events-none"
-                  )}
-                >
-                  {selectedLayerData && (
-                    <LayerPlanarView layer={selectedLayerData} stackIndex={stackIndex} />
-                  )}
+              {allStacks.length > 0 ? (
+                <div className="flex flex-col lg:flex-row items-stretch gap-6">
+                  <div
+                    className={cn(
+                      "flex-1 transition-all duration-500 overflow-hidden",
+                      selectedLayerData
+                        ? "opacity-100 translate-x-0 max-h-[520px]"
+                        : "opacity-0 -translate-x-4 max-h-0 lg:max-h-[520px] lg:max-w-0 lg:opacity-0 lg:-translate-x-4 pointer-events-none"
+                    )}
+                  >
+                    {selectedLayerData && (
+                      <LayerPlanarView layer={selectedLayerData} stackIndex={stackIndex} />
+                    )}
+                  </div>
+                  <div
+                    className={cn(
+                      "flex-1 transition-all duration-500",
+                      selectedLayerData ? "lg:translate-x-6" : "translate-x-0"
+                    )}
+                  >
+                    <StackVisualization3D
+                      layers={layers}
+                      selectedLayer={selectedLayer}
+                      onSelectLayer={setSelectedLayer}
+                      expandedView={expandedView}
+                      highlightDefects={highlightDefects}
+                    />
+                  </div>
                 </div>
-                <div
-                  className={cn(
-                    "flex-1 transition-all duration-500",
-                    selectedLayerData ? "lg:translate-x-6" : "translate-x-0"
-                  )}
-                >
-                  <StackVisualization3D
-                    layers={layers}
-                    selectedLayer={selectedLayer}
-                    onSelectLayer={setSelectedLayer}
-                    expandedView={expandedView}
-                    highlightDefects={highlightDefects}
-                  />
+              ) : (
+                <div className="h-[400px] flex items-center justify-center text-muted-foreground">
+                  {isLoading ? "데이터 분석 중..." : "표시할 데이터가 없습니다."}
                 </div>
-              </div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -707,7 +853,7 @@ export default function StackingVisualizationPage() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle>레이어별 상세 정보</CardTitle>
-              <CardDescription>각 레이어의 품질 지표 및 파라미터</CardDescription>
+              <CardDescription>각 레이어의 품질 지표 및 파라미터 (ID: {allStacks[stackIndex]?.stack_id})</CardDescription>
             </div>
             <Button
               variant="ghost"
@@ -730,18 +876,18 @@ export default function StackingVisualizationPage() {
                 <thead>
                   <tr className="border-b border-border">
                     <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">레이어</th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Chip ID</th>
                     <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">타입</th>
                     <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">상태</th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">불량유형</th>
                     <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">수율</th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">TSV 정렬도</th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">본딩 품질</th>
                     <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">온도</th>
                   </tr>
                 </thead>
                 <tbody>
                   {layers.map((layer) => (
-                    <tr 
-                      key={layer.id} 
+                    <tr
+                      key={layer.id}
                       className={cn(
                         "border-b border-border/50 hover:bg-muted/50 cursor-pointer transition-colors",
                         selectedLayer === layer.id && "bg-muted"
@@ -749,6 +895,7 @@ export default function StackingVisualizationPage() {
                       onClick={() => setSelectedLayer(layer.id)}
                     >
                       <td className="py-3 px-4 text-sm font-medium text-foreground">{layer.name}</td>
+                      <td className="py-3 px-4 text-sm text-muted-foreground font-mono">{layer.chipId}</td>
                       <td className="py-3 px-4">
                         <Badge variant="outline" className="text-xs">
                           {layer.type}
@@ -756,22 +903,26 @@ export default function StackingVisualizationPage() {
                       </td>
                       <td className="py-3 px-4">
                         <Badge
-                          variant={layer.status === "good" ? "default" : "outline"}
+                          variant={layer.status === "good" ? "default" : layer.status === "warning" ? "secondary" : "destructive"}
                           className={cn(
                             "text-xs",
                             layer.status === "good" && "bg-success text-success-foreground",
                             (layer.status === "warning" || layer.status === "defect") && "bg-warning text-warning-foreground border-warning"
                           )}
                         >
-                          {layer.status === "good" ? "정상" : "주의"}
+                          {layer.status === "good" ? "정상" : layer.status === "warning" ? "주의" : "결함"}
                         </Badge>
                       </td>
+                      <td className="py-3 px-4 text-sm text-foreground">{layer.failureType}</td>
                       <td className="py-3 px-4 text-sm text-foreground">{layer.yield.toFixed(1)}%</td>
-                      <td className="py-3 px-4 text-sm text-foreground">{layer.tsvAlignment.toFixed(1)}%</td>
-                      <td className="py-3 px-4 text-sm text-foreground">{layer.bondingQuality.toFixed(1)}%</td>
                       <td className="py-3 px-4 text-sm text-foreground">{layer.temperature.toFixed(1)}°C</td>
                     </tr>
                   ))}
+                  {layers.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="text-center py-4 text-muted-foreground">데이터가 없습니다.</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
