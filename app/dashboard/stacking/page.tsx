@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useEffect, memo, useCallback } from "react"
+import { useState, useMemo, useEffect, memo, useCallback, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -25,6 +25,7 @@ type LayerStatus = "good" | "defect" | "warning"
 interface StackLayer {
   id: number
   name: string
+  chipUid: string
   type: "DRAM"
   status: LayerStatus
   yield: number
@@ -44,9 +45,18 @@ function generateStackLayers(count: number): StackLayer[] {
     if (rand < 0.05) status = "defect"
     else if (rand < 0.15) status = "warning"
 
+    // 칩 UID 생성 (예: CHIP-2024-001-A1B2C3D4)
+    const generateChipUid = (layerId: number) => {
+      const prefix = "CHIP-2024-"
+      const id = String(layerId).padStart(3, '0')
+      const randomHex = Math.floor(Math.random() * 0xFFFFFF).toString(16).toUpperCase().padStart(6, '0')
+      return `${prefix}${id}-${randomHex}`
+    }
+    
     layers.push({
       id: i,
       name: `DRAM ${i}`,
+      chipUid: generateChipUid(i),
       type: "DRAM",
       status,
       yield: 94 + Math.random() * 5,
@@ -90,6 +100,69 @@ function generatePlanarMap(layerId: number, stackIndex: number, size: number = 3
   return cells
 }
 
+// TSV 불량 패턴 생성 함수
+function generateTSVDefectMap(layerId: number, stackIndex: number, size: number = 32) {
+  const rand = createSeededRandom(layerId * 137 + stackIndex * 997)
+  const cells: LayerStatus[] = []
+  
+  // TSV 불량은 보통 클러스터링된 패턴으로 나타남
+  // 중심부, 가장자리, 특정 영역에 집중되는 경향
+  
+  for (let row = 0; row < size; row++) {
+    for (let col = 0; col < size; col++) {
+      const x = col / size // 0 ~ 1
+      const y = row / size // 0 ~ 1
+      const centerX = 0.5
+      const centerY = 0.5
+      
+      // 중심으로부터의 거리
+      const distFromCenter = Math.sqrt(
+        Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2)
+      )
+      
+      // 가장자리 거리
+      const distFromEdge = Math.min(x, 1 - x, y, 1 - y)
+      
+      // TSV 불량 확률 계산
+      let defectProbability = 0
+      
+      // 중심부 불량 (원형 패턴)
+      if (distFromCenter < 0.3) {
+        defectProbability += 0.08 * (1 - distFromCenter / 0.3)
+      }
+      
+      // 가장자리 불량 (링 패턴)
+      if (distFromEdge < 0.15) {
+        defectProbability += 0.12 * (1 - distFromEdge / 0.15)
+      }
+      
+      // 랜덤 불량 (산발적)
+      defectProbability += 0.02
+      
+      // 클러스터링 효과 (주변에 불량이 있으면 확률 증가)
+      if (row > 0 && col > 0) {
+        const prevIndex = (row - 1) * size + (col - 1)
+        if (cells[prevIndex] === "defect") {
+          defectProbability += 0.15
+        } else if (cells[prevIndex] === "warning") {
+          defectProbability += 0.08
+        }
+      }
+      
+      const value = rand()
+      if (value < defectProbability) {
+        cells.push("defect")
+      } else if (value < defectProbability + 0.05) {
+        cells.push("warning")
+      } else {
+        cells.push("good")
+      }
+    }
+  }
+
+  return cells
+}
+
 const StackVisualization3D = memo(function StackVisualization3D({ 
   layers, 
   selectedLayer,
@@ -107,15 +180,13 @@ const StackVisualization3D = memo(function StackVisualization3D({
   const layerHeight = 70
   const stackGap = expandedView ? 22 : 16
 
-  const getLayerColor = (layer: StackLayer, shouldHighlight: boolean): string => {
-    if (shouldHighlight && layer.status === "defect") {
-      return "#ef4444"
-    }
-    if (shouldHighlight && layer.status === "warning") {
-      return "#f59e0b"
+  const getLayerColor = (layer: StackLayer): string => {
+    // 상태에 따라 색상 결정: 정상(파란색), 주의(주황색)
+    if (layer.status === "warning" || layer.status === "defect") {
+      return "#f59e0b" // 주황색 (주의)
     }
     
-    return "#3b82f6"
+    return "#3b82f6" // 파란색 (정상)
   }
 
   const centerX = 145
@@ -179,9 +250,7 @@ const StackVisualization3D = memo(function StackVisualization3D({
           const isSelected = selectedLayer === layer.id
           const actualIndex = layers.length - 1 - index
           const yOffset = actualIndex * stackGap
-          const isDefect = layer.status !== "good"
-          const shouldHighlight = highlightDefects && isDefect
-          const color = getLayerColor(layer, shouldHighlight)
+          const color = getLayerColor(layer)
           
           return (
             <g 
@@ -209,16 +278,6 @@ const StackVisualization3D = memo(function StackVisualization3D({
                 }}
               />
               
-              {/* Highlight indicator for defects */}
-              {shouldHighlight && (
-                <circle
-                  cx={centerX}
-                  cy={topY + yOffset + layerHeight / 2}
-                  r="8"
-                  fill="#fff"
-                  opacity="0"
-                />
-              )}
             </g>
           )
         })}
@@ -228,9 +287,7 @@ const StackVisualization3D = memo(function StackVisualization3D({
       <div className="absolute right-8 top-2 bottom-4 flex flex-col justify-start gap-1">
         {layers.map((layer) => {
           const isSelected = selectedLayer === layer.id
-          const isDefect = layer.status !== "good"
-          const shouldHighlight = highlightDefects && isDefect
-          const color = getLayerColor(layer, shouldHighlight)
+          const color = getLayerColor(layer)
           
           return (
             <div 
@@ -272,43 +329,119 @@ const StackVisualization3D = memo(function StackVisualization3D({
 const LayerPlanarView = memo(function LayerPlanarView({ layer, stackIndex }: { layer: StackLayer; stackIndex: number }) {
   const gridSize = 32
   const [cells, setCells] = useState<LayerStatus[]>([])
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const imageSize = 400 // 이미지 크기 (픽셀)
 
   // 클라이언트에서만 데이터 생성 (hydration 에러 방지)
   useEffect(() => {
-    setCells(generatePlanarMap(layer.id, stackIndex, gridSize))
+    // TSV 불량 패턴 사용
+    setCells(generateTSVDefectMap(layer.id, stackIndex, gridSize))
   }, [layer.id, stackIndex, gridSize])
 
-  const cellColors: Record<LayerStatus, string> = {
-    good: "bg-success/90",
-    warning: "bg-warning/90",
-    defect: "bg-destructive/90"
-  }
+  // Canvas에 이미지 그리기
+  useEffect(() => {
+    if (!canvasRef.current || cells.length === 0) return
+
+    const canvas = canvasRef.current
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    // Canvas 크기 설정
+    canvas.width = imageSize
+    canvas.height = imageSize
+
+    // 배경 투명하게 (회색 배경 제거)
+    ctx.clearRect(0, 0, imageSize, imageSize)
+
+    // 셀 크기 계산
+    const cellSize = imageSize / gridSize
+
+    // 색상 정의
+    const colors: Record<LayerStatus, string> = {
+      good: '#22c55e',      // 초록색
+      warning: '#f59e0b',   // 노란색
+      defect: '#ef4444'     // 빨간색
+    }
+
+    // 그리드 그리기
+    cells.forEach((status, index) => {
+      const row = Math.floor(index / gridSize)
+      const col = index % gridSize
+      
+      const x = col * cellSize
+      const y = row * cellSize
+
+      // 셀 색상 채우기
+      ctx.fillStyle = colors[status]
+      ctx.fillRect(x, y, cellSize, cellSize)
+    })
+
+  }, [cells, imageSize, gridSize])
+
+  // TSV 불량 통계 계산
+  const defectCount = cells.filter(c => c === "defect").length
+  const warningCount = cells.filter(c => c === "warning").length
+  const goodCount = cells.filter(c => c === "good").length
+  const totalCells = cells.length
+  const defectRate = ((defectCount / totalCells) * 100).toFixed(2)
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="font-semibold text-foreground">평면 이미지</h4>
-          <p className="text-xs text-muted-foreground">32x32 칩 구조</p>
+          <h4 className="font-semibold text-foreground">TSV 불량 평면 이미지</h4>
+          <p className="text-xs text-muted-foreground">32x32 TSV 구조 (불량률: {defectRate}%)</p>
         </div>
         <Badge variant="outline" className="text-xs">
           {layer.name}
         </Badge>
       </div>
-      <div className="max-w-sm">
-        <div
-          className="grid gap-px rounded-lg border border-border bg-muted/20 p-2"
-          style={{
-            gridTemplateColumns: `repeat(${gridSize}, 1fr)`,
-            gridTemplateRows: `repeat(${gridSize}, 1fr)`
-          }}
-        >
-          {cells.map((status, index) => (
-            <div
-              key={`${layer.id}-${index}`}
-              className={cn("w-full h-full rounded-[1px]", cellColors[status])}
-            />
-          ))}
+      
+      {/* 범례 */}
+      <div className="flex items-center gap-4 text-xs">
+        <div className="flex items-center gap-1.5">
+          <div className="w-3 h-3 rounded-sm bg-success/90" />
+          <span className="text-muted-foreground">정상 TSV</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-3 h-3 rounded-sm bg-warning/90" />
+          <span className="text-muted-foreground">주의 TSV</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-3 h-3 rounded-sm bg-destructive/90" />
+          <span className="text-muted-foreground">불량 TSV</span>
+        </div>
+      </div>
+
+      {/* Canvas 이미지 */}
+      <div className="flex justify-center">
+        <div className="rounded-lg border border-border bg-muted/20 p-2">
+          <canvas
+            ref={canvasRef}
+            className="rounded-md"
+            style={{
+              width: '100%',
+              maxWidth: `${imageSize}px`,
+              height: 'auto',
+              imageRendering: 'pixelated' // 선명한 픽셀 표시
+            }}
+          />
+        </div>
+      </div>
+
+      {/* 통계 정보 */}
+      <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border">
+        <div className="text-center">
+          <div className="text-lg font-bold text-success">{goodCount}</div>
+          <div className="text-xs text-muted-foreground">정상</div>
+        </div>
+        <div className="text-center">
+          <div className="text-lg font-bold text-warning">{warningCount}</div>
+          <div className="text-xs text-muted-foreground">주의</div>
+        </div>
+        <div className="text-center">
+          <div className="text-lg font-bold text-destructive">{defectCount}</div>
+          <div className="text-xs text-muted-foreground">불량</div>
         </div>
       </div>
     </div>
@@ -319,15 +452,18 @@ const LayerDetailPanel = memo(function LayerDetailPanel({ layer }: { layer: Stac
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h4 className="font-semibold text-foreground">{layer.name}</h4>
+        <div>
+          <h4 className="font-semibold text-foreground">{layer.name}</h4>
+          <p className="text-xs text-muted-foreground mt-1">{layer.chipUid}</p>
+        </div>
         <Badge
-          variant={layer.status === "good" ? "default" : layer.status === "warning" ? "secondary" : "destructive"}
+          variant={layer.status === "good" ? "default" : "outline"}
           className={cn(
             layer.status === "good" && "bg-success text-success-foreground",
-            layer.status === "warning" && "bg-warning text-warning-foreground"
+            (layer.status === "warning" || layer.status === "defect") && "bg-warning text-warning-foreground border-warning"
           )}
         >
-          {layer.status === "good" ? "정상" : layer.status === "warning" ? "주의" : "결함"}
+          {layer.status === "good" ? "정상" : "주의"}
         </Badge>
       </div>
 
@@ -369,17 +505,15 @@ const LayerDetailPanel = memo(function LayerDetailPanel({ layer }: { layer: Stac
 
 const StackQualityGrade = memo(function StackQualityGrade({ layers }: { layers: StackLayer[] }) {
   const goodLayers = layers.filter(l => l.status === "good").length
-  const warningLayers = layers.filter(l => l.status === "warning").length
-  const defectLayers = layers.filter(l => l.status === "defect").length
+  // defect도 주의로 카운트
+  const warningLayers = layers.filter(l => l.status === "warning" || l.status === "defect").length
   const totalYield = layers.reduce((acc, l) => acc + l.yield, 0) / layers.length
 
   let grade = "A"
   let gradeColor = "text-success"
   
-  if (defectLayers > 0) {
-    grade = "F"
-    gradeColor = "text-destructive"
-  } else if (warningLayers > 2) {
+  // 등급 기준: 주의 레이어 수에 따라 결정
+  if (warningLayers > 2) {
     grade = "C"
     gradeColor = "text-warning"
   } else if (warningLayers > 0) {
@@ -414,13 +548,6 @@ const StackQualityGrade = memo(function StackQualityGrade({ layers }: { layers: 
             </div>
             <span className="font-medium text-foreground">{warningLayers}</span>
           </div>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-destructive" />
-              <span className="text-muted-foreground">결함 레이어</span>
-            </div>
-            <span className="font-medium text-foreground">{defectLayers}</span>
-          </div>
           <div className="pt-2 border-t border-border flex items-center justify-between">
             <span className="text-muted-foreground">종합 수율</span>
             <span className="font-bold text-foreground">{totalYield.toFixed(1)}%</span>
@@ -436,6 +563,7 @@ export default function StackingVisualizationPage() {
   const [selectedLayer, setSelectedLayer] = useState<number | null>(null)
   const [expandedView, setExpandedView] = useState(false)
   const [highlightDefects, setHighlightDefects] = useState(true)
+  const [isLayerDetailExpanded, setIsLayerDetailExpanded] = useState(true)
 
   const [layers, setLayers] = useState<StackLayer[]>([])
 
@@ -576,60 +704,79 @@ export default function StackingVisualizationPage() {
       {/* Layer List */}
       <Card>
         <CardHeader>
-          <CardTitle>레이어별 상세 정보</CardTitle>
-          <CardDescription>각 레이어의 품질 지표 및 파라미터</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">레이어</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">타입</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">상태</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">수율</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">TSV 정렬도</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">본딩 품질</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">온도</th>
-                </tr>
-              </thead>
-              <tbody>
-                {layers.map((layer) => (
-                  <tr 
-                    key={layer.id} 
-                    className={cn(
-                      "border-b border-border/50 hover:bg-muted/50 cursor-pointer transition-colors",
-                      selectedLayer === layer.id && "bg-muted"
-                    )}
-                    onClick={() => setSelectedLayer(layer.id)}
-                  >
-                    <td className="py-3 px-4 text-sm font-medium text-foreground">{layer.name}</td>
-                    <td className="py-3 px-4">
-                      <Badge variant="outline" className="text-xs">
-                        {layer.type}
-                      </Badge>
-                    </td>
-                    <td className="py-3 px-4">
-                      <Badge
-                        variant={layer.status === "good" ? "default" : layer.status === "warning" ? "secondary" : "destructive"}
-                        className={cn(
-                          "text-xs",
-                          layer.status === "good" && "bg-success text-success-foreground"
-                        )}
-                      >
-                        {layer.status === "good" ? "정상" : layer.status === "warning" ? "주의" : "결함"}
-                      </Badge>
-                    </td>
-                    <td className="py-3 px-4 text-sm text-foreground">{layer.yield.toFixed(1)}%</td>
-                    <td className="py-3 px-4 text-sm text-foreground">{layer.tsvAlignment.toFixed(1)}%</td>
-                    <td className="py-3 px-4 text-sm text-foreground">{layer.bondingQuality.toFixed(1)}%</td>
-                    <td className="py-3 px-4 text-sm text-foreground">{layer.temperature.toFixed(1)}°C</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>레이어별 상세 정보</CardTitle>
+              <CardDescription>각 레이어의 품질 지표 및 파라미터</CardDescription>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsLayerDetailExpanded(!isLayerDetailExpanded)}
+              className="h-8 w-8"
+            >
+              {isLayerDetailExpanded ? (
+                <ChevronUp className="w-4 h-4" />
+              ) : (
+                <ChevronDown className="w-4 h-4" />
+              )}
+            </Button>
           </div>
-        </CardContent>
+        </CardHeader>
+        {isLayerDetailExpanded && (
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">레이어</th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">타입</th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">상태</th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">수율</th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">TSV 정렬도</th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">본딩 품질</th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">온도</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {layers.map((layer) => (
+                    <tr 
+                      key={layer.id} 
+                      className={cn(
+                        "border-b border-border/50 hover:bg-muted/50 cursor-pointer transition-colors",
+                        selectedLayer === layer.id && "bg-muted"
+                      )}
+                      onClick={() => setSelectedLayer(layer.id)}
+                    >
+                      <td className="py-3 px-4 text-sm font-medium text-foreground">{layer.name}</td>
+                      <td className="py-3 px-4">
+                        <Badge variant="outline" className="text-xs">
+                          {layer.type}
+                        </Badge>
+                      </td>
+                      <td className="py-3 px-4">
+                        <Badge
+                          variant={layer.status === "good" ? "default" : "outline"}
+                          className={cn(
+                            "text-xs",
+                            layer.status === "good" && "bg-success text-success-foreground",
+                            (layer.status === "warning" || layer.status === "defect") && "bg-warning text-warning-foreground border-warning"
+                          )}
+                        >
+                          {layer.status === "good" ? "정상" : "주의"}
+                        </Badge>
+                      </td>
+                      <td className="py-3 px-4 text-sm text-foreground">{layer.yield.toFixed(1)}%</td>
+                      <td className="py-3 px-4 text-sm text-foreground">{layer.tsvAlignment.toFixed(1)}%</td>
+                      <td className="py-3 px-4 text-sm text-foreground">{layer.bondingQuality.toFixed(1)}%</td>
+                      <td className="py-3 px-4 text-sm text-foreground">{layer.temperature.toFixed(1)}°C</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        )}
       </Card>
     </div>
   )

@@ -54,26 +54,66 @@ interface WaferMapStats {
 }
 
 export const WaferMapVisualization = memo(function WaferMapVisualization({ 
-  onStatsChange 
+  onStatsChange,
+  waferStats
 }: { 
-  onStatsChange?: (stats: WaferMapStats) => void 
+  onStatsChange?: (stats: WaferMapStats) => void
+  waferStats?: { good: number; bad: number; total: number }
 }) {
   const [dies, setDies] = useState<Die[]>([])
   const gridSize = 34 // 원형 테두리 크기
   const dieGridSize = 32 // 실제 다이 그리드 크기
   const dieOffset = (gridSize - dieGridSize) / 2 // 다이를 중앙에 배치하기 위한 오프셋 (1)
 
-  // 클라이언트에서만 랜덤 데이터 생성 (hydration 에러 방지)
+  // 웨이퍼 통계 데이터를 기반으로 맵 생성
   useEffect(() => {
-    // 32×32 다이를 생성하고, 34×34 그리드 중앙에 배치
-    const generatedDies = generateWaferMap(dieGridSize)
-    const offsetDies = generatedDies.map(die => ({
-      ...die,
-      x: die.x + dieOffset,
-      y: die.y + dieOffset
-    }))
-    setDies(offsetDies)
-  }, [dieOffset])
+    if (waferStats && waferStats.total > 0) {
+      // 실제 통계에 맞춰 다이 생성
+      const totalCells = dieGridSize * dieGridSize
+      const goodCount = waferStats.good
+      const badCount = waferStats.bad
+      const emptyCount = totalCells - goodCount - badCount
+      
+      // 상태 배열 생성
+      const statusArray: DieStatus[] = []
+      for (let i = 0; i < goodCount; i++) statusArray.push("good")
+      for (let i = 0; i < badCount; i++) statusArray.push("bad")
+      for (let i = 0; i < emptyCount; i++) statusArray.push("empty")
+      
+      // 배열 섞기 (랜덤 배치)
+      for (let i = statusArray.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [statusArray[i], statusArray[j]] = [statusArray[j], statusArray[i]]
+      }
+      
+      // 다이 배열 생성
+      const generatedDies: Die[] = []
+      let statusIndex = 0
+      for (let y = 0; y < dieGridSize; y++) {
+        for (let x = 0; x < dieGridSize; x++) {
+          const status = statusArray[statusIndex] || "empty"
+          generatedDies.push({ x, y, status })
+          statusIndex++
+        }
+      }
+      
+      const offsetDies = generatedDies.map(die => ({
+        ...die,
+        x: die.x + dieOffset,
+        y: die.y + dieOffset
+      }))
+      setDies(offsetDies)
+    } else {
+      // 통계 데이터가 없으면 랜덤 생성 (기본 동작)
+      const generatedDies = generateWaferMap(dieGridSize)
+      const offsetDies = generatedDies.map(die => ({
+        ...die,
+        x: die.x + dieOffset,
+        y: die.y + dieOffset
+      }))
+      setDies(offsetDies)
+    }
+  }, [dieOffset, waferStats])
   
   const centerX = gridSize / 2 - 0.5
   const centerY = gridSize / 2 - 0.5
@@ -223,14 +263,54 @@ export const WaferMapVisualization = memo(function WaferMapVisualization({
 })
 
 // Compact version for use in lists
-export const WaferMapMini = memo(function WaferMapMini({ className }: { className?: string }) {
+export const WaferMapMini = memo(function WaferMapMini({ 
+  className,
+  waferStats
+}: { 
+  className?: string
+  waferStats?: { good: number; bad: number; total: number }
+}) {
   const [dies, setDies] = useState<Die[]>([])
   const gridSize = 32
 
-  // 클라이언트에서만 랜덤 데이터 생성 (hydration 에러 방지)
+  // 웨이퍼 통계 데이터를 기반으로 맵 생성
   useEffect(() => {
-    setDies(generateWaferMap(32))
-  }, [])
+    if (waferStats && waferStats.total > 0) {
+      // 실제 통계에 맞춰 다이 생성
+      const totalCells = gridSize * gridSize
+      const goodCount = waferStats.good
+      const badCount = waferStats.bad
+      const emptyCount = totalCells - goodCount - badCount
+      
+      // 상태 배열 생성
+      const statusArray: DieStatus[] = []
+      for (let i = 0; i < goodCount; i++) statusArray.push("good")
+      for (let i = 0; i < badCount; i++) statusArray.push("bad")
+      for (let i = 0; i < emptyCount; i++) statusArray.push("empty")
+      
+      // 배열 섞기 (랜덤 배치)
+      for (let i = statusArray.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [statusArray[i], statusArray[j]] = [statusArray[j], statusArray[i]]
+      }
+      
+      // 다이 배열 생성
+      const generatedDies: Die[] = []
+      let statusIndex = 0
+      for (let y = 0; y < gridSize; y++) {
+        for (let x = 0; x < gridSize; x++) {
+          const status = statusArray[statusIndex] || "empty"
+          generatedDies.push({ x, y, status })
+          statusIndex++
+        }
+      }
+      
+      setDies(generatedDies)
+    } else {
+      // 통계 데이터가 없으면 랜덤 생성 (기본 동작)
+      setDies(generateWaferMap(32))
+    }
+  }, [waferStats])
   
   const centerX = gridSize / 2 - 0.5
   const centerY = gridSize / 2 - 0.5
