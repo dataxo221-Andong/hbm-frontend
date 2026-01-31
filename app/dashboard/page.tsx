@@ -61,46 +61,46 @@ interface WaferData {
 
 // Demo wafer data
 const DEMO_WAFERS: WaferData[] = [
-  { 
-    id: "WF-2024-001", 
-    batch: "B001", 
-    status: "completed", 
-    yield: 94.2, 
+  {
+    id: "WF-2024-001",
+    batch: "B001",
+    status: "completed",
+    yield: 94.2,
     grade: "A",
     processedAt: "2024-01-15T10:30:00",
-      waferMapData: { good: 962, bad: 62, total: 1024 },
-      defects: [{ type: "Edge-Ring", count: 23, percent: 37 }]
+    waferMapData: { good: 962, bad: 62, total: 1024 },
+    defects: [{ type: "Edge-Ring", count: 23, percent: 37 }]
   },
-  { 
-    id: "WF-2024-002", 
-    batch: "B001", 
-    status: "completed", 
-    yield: 91.8, 
+  {
+    id: "WF-2024-002",
+    batch: "B001",
+    status: "completed",
+    yield: 91.8,
     grade: "A",
     processedAt: "2024-01-15T11:15:00",
-      waferMapData: { good: 940, bad: 84, total: 1024 },
-      defects: [{ type: "Scratch", count: 30, percent: 36 }]
+    waferMapData: { good: 940, bad: 84, total: 1024 },
+    defects: [{ type: "Scratch", count: 30, percent: 36 }]
   },
-  { 
-    id: "WF-2024-003", 
-    batch: "B001", 
-    status: "processing", 
-    yield: null, 
-    grade: null 
+  {
+    id: "WF-2024-003",
+    batch: "B001",
+    status: "processing",
+    yield: null,
+    grade: null
   },
-  { 
-    id: "WF-2024-004", 
-    batch: "B002", 
-    status: "pending", 
-    yield: null, 
-    grade: null 
+  {
+    id: "WF-2024-004",
+    batch: "B002",
+    status: "pending",
+    yield: null,
+    grade: null
   },
-  { 
-    id: "WF-2024-005", 
-    batch: "B002", 
-    status: "pending", 
-    yield: null, 
-    grade: null 
+  {
+    id: "WF-2024-005",
+    batch: "B002",
+    status: "pending",
+    yield: null,
+    grade: null
   },
 ]
 
@@ -170,13 +170,13 @@ type SortField = 'id' | 'status' | 'yield' | 'grade'
 type SortDirection = 'asc' | 'desc' | null
 
 // 테이블 헤더 컴포넌트
-const TableHeader = memo(function TableHeader({ 
-  field, 
-  label, 
-  sortField, 
-  sortDirection, 
-  onSort 
-}: { 
+const TableHeader = memo(function TableHeader({
+  field,
+  label,
+  sortField,
+  sortDirection,
+  onSort
+}: {
   field: SortField
   label: string
   sortField: SortField | null
@@ -184,9 +184,9 @@ const TableHeader = memo(function TableHeader({
   onSort: (field: SortField) => void
 }) {
   const isActive = sortField === field
-  
+
   return (
-    <th 
+    <th
       className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:bg-muted/50 transition-colors"
       onClick={() => onSort(field)}
     >
@@ -213,9 +213,9 @@ const StatusBadge = memo(function StatusBadge({ status }: { status: string }) {
     processing: { label: '처리중', className: 'bg-yellow-500 text-yellow-foreground' },
     pending: { label: '대기', className: 'bg-muted text-muted-foreground' },
   }
-  
+
   const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.pending
-  
+
   return (
     <Badge className={cn("font-medium", config.className)}>
       {config.label}
@@ -226,16 +226,16 @@ const StatusBadge = memo(function StatusBadge({ status }: { status: string }) {
 // 등급 뱃지 컴포넌트
 const GradeBadge = memo(function GradeBadge({ grade }: { grade: string | null }) {
   if (!grade) return <span className="text-muted-foreground">-</span>
-  
+
   const gradeConfig: Record<string, { className: string }> = {
     'A': { className: 'bg-green-500 text-white' },
     'B': { className: 'bg-blue-500 text-white' },
     'C': { className: 'bg-yellow-500 text-white' },
     'F': { className: 'bg-red-500 text-white' },
   }
-  
+
   const config = gradeConfig[grade] || { className: 'bg-muted text-muted-foreground' }
-  
+
   return (
     <Badge className={cn("font-bold min-w-[2rem] justify-center", config.className)}>
       {grade}
@@ -244,11 +244,11 @@ const GradeBadge = memo(function GradeBadge({ grade }: { grade: string | null })
 })
 
 // 웨이퍼 썸네일 카드 컴포넌트 (Image Strip용)
-const WaferThumbnailCard = memo(function WaferThumbnailCard({ 
-  wafer, 
-  isSelected, 
-  onClick 
-}: { 
+const WaferThumbnailCard = memo(function WaferThumbnailCard({
+  wafer,
+  isSelected,
+  onClick
+}: {
   wafer: WaferData
   isSelected: boolean
   onClick: () => void
@@ -257,10 +257,10 @@ const WaferThumbnailCard = memo(function WaferThumbnailCard({
     if (!dateString) return "-"
     try {
       const date = new Date(dateString)
-      return date.toLocaleDateString("ko-KR", { 
-        year: "numeric", 
-        month: "2-digit", 
-        day: "2-digit" 
+      return date.toLocaleDateString("ko-KR", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
       })
     } catch {
       return "-"
@@ -273,8 +273,8 @@ const WaferThumbnailCard = memo(function WaferThumbnailCard({
       className={cn(
         "flex-shrink-0 w-[180px] rounded-lg border-2 transition-all cursor-pointer",
         "bg-card hover:bg-accent/50",
-        isSelected 
-          ? "border-primary shadow-lg shadow-primary/20" 
+        isSelected
+          ? "border-primary shadow-lg shadow-primary/20"
           : "border-border hover:border-primary/50"
       )}
     >
@@ -282,8 +282,8 @@ const WaferThumbnailCard = memo(function WaferThumbnailCard({
         {/* 웨이퍼 맵 썸네일 */}
         <div className="relative aspect-square w-full rounded-md overflow-hidden bg-muted/30 border border-border">
           {wafer.status === "completed" && wafer.waferMapData ? (
-            <WaferMapMini 
-              className="w-full h-full" 
+            <WaferMapMini
+              className="w-full h-full"
               waferStats={wafer.waferMapData}
             />
           ) : wafer.status === "processing" ? (
@@ -350,7 +350,7 @@ const WaferListNavigation = memo(function WaferListNavigation({
   // 스크롤 가능 여부 확인
   const checkScrollability = useCallback(() => {
     if (!scrollContainerRef.current) return
-    
+
     const container = scrollContainerRef.current
     setCanScrollLeft(container.scrollLeft > 0)
     setCanScrollRight(
@@ -376,14 +376,14 @@ const WaferListNavigation = memo(function WaferListNavigation({
   // 선택된 카드가 보이도록 스크롤 위치 조정
   useEffect(() => {
     if (!selectedWaferId || !scrollContainerRef.current) return
-    
+
     const cardElement = cardRefs.current.get(selectedWaferId)
     const container = scrollContainerRef.current
-    
+
     if (cardElement) {
       const cardRect = cardElement.getBoundingClientRect()
       const containerRect = container.getBoundingClientRect()
-      
+
       // 카드가 컨테이너 왼쪽 밖에 있으면
       if (cardRect.left < containerRect.left) {
         container.scrollTo({
@@ -459,7 +459,7 @@ const WaferListNavigation = memo(function WaferListNavigation({
               <ChevronLeft className="w-4 h-4" />
             </Button>
           )}
-          
+
           {/* 오른쪽 화살표 버튼 */}
           {canScrollRight && (
             <Button
@@ -472,7 +472,7 @@ const WaferListNavigation = memo(function WaferListNavigation({
             </Button>
           )}
 
-          <div 
+          <div
             ref={scrollContainerRef}
             className="overflow-x-auto scrollbar-thin scroll-smooth px-1"
             style={{ scrollbarWidth: 'thin' }}
@@ -507,15 +507,15 @@ const WaferListNavigation = memo(function WaferListNavigation({
 const ClassificationStats = memo(function ClassificationStats({ wafers }: { wafers: WaferData[] }) {
   // 완료된 웨이퍼만 계산
   const completedWafers = wafers.filter(w => w.status === "completed" && w.waferMapData)
-  
+
   // 총 분석 웨이퍼 수
   const totalWafers = completedWafers.length
-  
+
   // Good Die, Bad Die 합계 계산
   const totalGoodDie = completedWafers.reduce((sum, w) => sum + (w.waferMapData?.good || 0), 0)
   const totalBadDie = completedWafers.reduce((sum, w) => sum + (w.waferMapData?.bad || 0), 0)
   const totalDie = totalGoodDie + totalBadDie
-  
+
   // 불량률 계산: Bad Die / (Good Die + Bad Die) * 100
   const defectRate = totalDie > 0 ? (totalBadDie / totalDie) * 100 : 0
 
@@ -629,18 +629,18 @@ export default function WaferModelingPage() {
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
   const [waferMapStats, setWaferMapStats] = useState<{ good: number; bad: number; total: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  
+
   // 정렬 상태
   const [sortField, setSortField] = useState<SortField | null>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>(null)
-  
+
   // 페이지네이션 상태
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 10
-  
+
   // 분석 결과 탭에서 선택된 웨이퍼 (Image Strip용)
   const [selectedResultWaferId, setSelectedResultWaferId] = useState<string | null>(null)
-  
+
   // 배치 분석 결과 모달 상태
   const [showBatchResultModal, setShowBatchResultModal] = useState(false)
   const [batchAnalysisResults, setBatchAnalysisResults] = useState<AnalysisResult[]>([])
@@ -670,7 +670,7 @@ export default function WaferModelingPage() {
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (files) {
-      setUploadedFiles(Array.from(files))
+      setUploadedFiles(prev => [...prev, ...Array.from(files)])
       setCurrentStep(1)
     }
   }, [])
@@ -679,7 +679,7 @@ export default function WaferModelingPage() {
     e.preventDefault()
     const files = e.dataTransfer.files
     if (files) {
-      setUploadedFiles(Array.from(files))
+      setUploadedFiles(prev => [...prev, ...Array.from(files)])
       setCurrentStep(1)
     }
   }, [])
@@ -735,8 +735,8 @@ export default function WaferModelingPage() {
         // 그냥 단순히 분석 단계(3)로 표시
         setCurrentStep(3)
 
-        // [Step 3] Analyze: 실제 분석 수행
-        const analyzeResponse = await fetch(`${API_URL}/wafer/${lotName}/analyze`, {
+        // [Step 3] Analyze: 실제 분석 수행 (batch_id 전달)
+        const analyzeResponse = await fetch(`${API_URL}/wafer/${lotName}/analyze?batch_id=${batchId}`, {
           method: 'POST'
         })
 
@@ -786,9 +786,9 @@ export default function WaferModelingPage() {
           },
           defects: result.defects
         }
-        
+
         setWafers(prev => [newWafer, ...prev])
-        
+
         // 첫 번째 완료된 웨이퍼를 자동으로 선택
         if (!selectedResultWaferId) {
           setSelectedResultWaferId(result.waferId)
@@ -845,15 +845,15 @@ export default function WaferModelingPage() {
     // 데모 데이터 생성 (100개 웨이퍼 시뮬레이션)
     const defectTypes = ["Center", "Donut", "Edge-Ring", "Edge-Loc", "Loc", "Random", "Scratch", "Near-full"]
     const demoResults: AnalysisResult[] = []
-    
+
     for (let i = 1; i <= 100; i++) {
       const yieldVal = Math.random() * 20 + 80 // 80-100% 사이 랜덤 수율
       const goodDie = Math.floor(1024 * (yieldVal / 100))
       const badDie = 1024 - goodDie
-      
+
       // 일부 웨이퍼는 정상으로 설정 (약 10% 확률)
       const isNormal = Math.random() < 0.1 || badDie === 0
-      
+
       demoResults.push({
         waferId: `WF-2024-${String(i).padStart(3, '0')}`,
         yield: parseFloat(yieldVal.toFixed(1)),
@@ -866,7 +866,7 @@ export default function WaferModelingPage() {
         processedAt: new Date().toISOString(),
       })
     }
-    
+
     // 웨이퍼 데이터도 업데이트 (모달에서 썸네일 표시용)
     const demoWafers: WaferData[] = demoResults.map(result => ({
       id: result.waferId,
@@ -882,7 +882,7 @@ export default function WaferModelingPage() {
       },
       defects: result.defects
     }))
-    
+
     setWafers(prev => [...demoWafers, ...prev])
     setBatchAnalysisResults(demoResults)
     setBatchProcessedAt(new Date().toISOString())
@@ -891,7 +891,7 @@ export default function WaferModelingPage() {
 
   const handleWaferView = useCallback((waferId: string) => {
     setSelectedWafer(waferId)
-    
+
     // 웨이퍼 데이터를 찾아서 단일 웨이퍼 결과 모달 표시
     const wafer = wafers.find(w => w.id === waferId && w.status === "completed")
     if (wafer && wafer.yield !== null && wafer.waferMapData) {
@@ -931,11 +931,11 @@ export default function WaferModelingPage() {
   // 정렬된 웨이퍼 목록
   const sortedWafers = useMemo(() => {
     if (!sortField || !sortDirection) return wafers
-    
+
     return [...wafers].sort((a, b) => {
       let aValue: any
       let bValue: any
-      
+
       switch (sortField) {
         case 'id':
           aValue = a.id
@@ -956,7 +956,7 @@ export default function WaferModelingPage() {
         default:
           return 0
       }
-      
+
       if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1
       if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1
       return 0
@@ -1024,9 +1024,9 @@ export default function WaferModelingPage() {
               <CardDescription>.pkl 분석 데이터를 업로드하고 AI 기반 분류를 시작하세요</CardDescription>
             </div>
             <div className="flex gap-2">
-              <Button 
-                variant="outline" 
-                size="sm" 
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={testBatchResultModal}
                 className="bg-yellow-500/10 hover:bg-yellow-500/20 border-yellow-500/50 text-yellow-600 dark:text-yellow-400"
               >
@@ -1236,16 +1236,16 @@ export default function WaferModelingPage() {
                 <table className="w-full">
                   <thead className="bg-muted/50 border-b border-border">
                     <tr>
-                      <TableHeader 
-                        field="id" 
-                        label="웨이퍼 ID" 
+                      <TableHeader
+                        field="id"
+                        label="웨이퍼 ID"
                         sortField={sortField}
                         sortDirection={sortDirection}
                         onSort={handleSort}
                       />
-                      <TableHeader 
-                        field="status" 
-                        label="상태" 
+                      <TableHeader
+                        field="status"
+                        label="상태"
                         sortField={sortField}
                         sortDirection={sortDirection}
                         onSort={handleSort}
@@ -1263,9 +1263,9 @@ export default function WaferModelingPage() {
                           </div>
                         </div>
                       </th>
-                      <TableHeader 
-                        field="grade" 
-                        label="등급" 
+                      <TableHeader
+                        field="grade"
+                        label="등급"
                         sortField={sortField}
                         sortDirection={sortDirection}
                         onSort={handleSort}
@@ -1318,15 +1318,15 @@ export default function WaferModelingPage() {
                           <td className="px-4 py-3 whitespace-nowrap">
                             {wafer.status === "completed" ? (
                               wafer.defects && wafer.defects.length > 0 ? (
-                                <Badge 
-                                  variant="outline" 
+                                <Badge
+                                  variant="outline"
                                   className="text-xs"
                                 >
                                   {wafer.defects[0].type}
                                 </Badge>
                               ) : (
-                                <Badge 
-                                  variant="outline" 
+                                <Badge
+                                  variant="outline"
                                   className="text-xs bg-success/10 border-success/30 text-success"
                                 >
                                   정상
@@ -1374,7 +1374,7 @@ export default function WaferModelingPage() {
                   </tbody>
                 </table>
               </div>
-              
+
               {/* 페이지네이션 */}
               {sortedWafers.length > itemsPerPage && (
                 <div className="flex items-center justify-between px-4 py-3 border-t border-border">
@@ -1402,7 +1402,7 @@ export default function WaferModelingPage() {
                         } else {
                           pageNum = currentPage - 2 + i
                         }
-                        
+
                         return (
                           <Button
                             key={pageNum}
@@ -1457,7 +1457,7 @@ export default function WaferModelingPage() {
                   <CardDescription>{selectedWaferData.id} 분석 결과</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <WaferMapVisualization 
+                  <WaferMapVisualization
                     onStatsChange={setWaferMapStats}
                     waferStats={selectedWaferData.waferMapData || undefined}
                   />
@@ -1521,16 +1521,16 @@ export default function WaferModelingPage() {
                   <div className="pt-4 border-t border-border">
                     <h4 className="text-sm font-medium text-foreground mb-3">불량 패턴</h4>
                     {selectedWaferData.defects && selectedWaferData.defects.length > 0 ? (
-                      <Badge 
-                        variant="outline" 
+                      <Badge
+                        variant="outline"
                         className="text-sm px-3 py-1.5"
                       >
                         {selectedWaferData.defects[0].type}
                       </Badge>
                     ) : (
                       <div className="flex items-center gap-2">
-                        <Badge 
-                          variant="outline" 
+                        <Badge
+                          variant="outline"
                           className="text-sm px-3 py-1.5 bg-success/10 border-success/30 text-success"
                         >
                           정상
@@ -1624,8 +1624,8 @@ export default function WaferModelingPage() {
                 {analysisResult.defects && analysisResult.defects.length > 0 ? (
                   <div className="space-y-4">
                     <div className="flex items-center gap-3 p-3 bg-destructive/10 rounded-lg border-2 border-destructive/30">
-                      <Badge 
-                        variant="outline" 
+                      <Badge
+                        variant="outline"
                         className="text-base px-4 py-2 font-bold bg-destructive/20 border-destructive text-destructive"
                       >
                         {analysisResult.defects[0].type}
@@ -1637,7 +1637,7 @@ export default function WaferModelingPage() {
                         </span>
                       </div>
                     </div>
-                    
+
                     {PATTERN_ANALYSIS[analysisResult.defects[0].type] && (
                       <Card className="border-2 border-destructive/20 bg-destructive/5">
                         <CardContent className="py-3 px-3.5 space-y-2.5">
@@ -1678,8 +1678,8 @@ export default function WaferModelingPage() {
                 ) : (
                   <div className="space-y-4">
                     <div className="flex items-center gap-3 p-3 bg-success/10 rounded-lg border-2 border-success/30">
-                      <Badge 
-                        variant="outline" 
+                      <Badge
+                        variant="outline"
                         className="text-base px-4 py-2 font-bold bg-success/20 border-success text-success"
                       >
                         정상
@@ -1780,23 +1780,23 @@ export default function WaferModelingPage() {
 
             // 불량 패턴 목록 (요구사항에 명시된 패턴)
             const allDefectPatterns = ["Center", "Donut", "Edge-Ring", "Edge-Loc", "Loc", "Random", "Scratch", "Near-full"]
-            
+
             // 불량 패턴별 통계 계산 (웨이퍼 개수만)
             const defectPatternStats: Record<string, { waferCount: number }> = {}
-            
+
             // 모든 패턴 초기화
             allDefectPatterns.forEach(pattern => {
               defectPatternStats[pattern] = { waferCount: 0 }
             })
-            
+
             // 정상 웨이퍼 카운트
             let normalWaferCount = 0
-            
+
             // 실제 데이터에서 통계 계산
             batchAnalysisResults.forEach(result => {
               // defects가 없거나, 빈 배열이거나, 모든 defect의 count가 0인 경우 정상 웨이퍼로 간주
               const hasDefects = result.defects && result.defects.length > 0 && result.defects.some(d => d.count > 0)
-              
+
               if (!hasDefects) {
                 // 불량 패턴이 없는 정상 웨이퍼
                 normalWaferCount += 1
@@ -1902,13 +1902,13 @@ export default function WaferModelingPage() {
                               {normalWaferCount}
                             </div>
                           </div>
-                          <Progress 
-                            value={(normalWaferCount / maxWaferCount) * 100} 
+                          <Progress
+                            value={(normalWaferCount / maxWaferCount) * 100}
                             className="h-3"
                           />
                         </div>
                       )}
-                      
+
                       {/* 검출된 불량 패턴 (막대 그래프 포함) */}
                       {sortedDefectPatterns.map(([pattern, stats]) => {
                         const percentage = (stats.waferCount / maxWaferCount) * 100
@@ -1927,8 +1927,8 @@ export default function WaferModelingPage() {
                                 {stats.waferCount}
                               </div>
                             </div>
-                            <Progress 
-                              value={percentage} 
+                            <Progress
+                              value={percentage}
                               className="h-3"
                             />
                           </div>
