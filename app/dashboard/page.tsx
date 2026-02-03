@@ -58,6 +58,7 @@ interface WaferData {
   processedAt?: string
   waferMapData?: { good: number; bad: number; total: number }
   defects?: Array<{ type: string; count: number; percent: number }>
+  defectDensity?: number // Explicit field for list view
 }
 
 // Demo wafer data
@@ -640,7 +641,45 @@ export default function WaferModelingPage() {
 
   // 페이지네이션 상태
   const [currentPage, setCurrentPage] = useState(1)
-  const itemsPerPage = 10
+  const itemsPerPage = 20
+  const [totalItems, setTotalItems] = useState(0)
+  const [jumpPage, setJumpPage] = useState("")
+
+  // 웨이퍼 데이터 가져오기 (DB 연동)
+  const fetchWafers = useCallback(async (page: number) => {
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://3.39.251.229:5000'
+      const res = await fetch(`${API_URL}/wafer/list?page=${page}&limit=${itemsPerPage}`)
+      if (res.ok) {
+        const data = await res.json()
+
+        const mappedWafers: WaferData[] = data.wafers.map((w: any) => ({
+          id: w.lot_name,
+          batch: "BATCH",
+          status: "completed",
+          yield: w.die_count > 0 ? parseFloat(((1 - w.defect_density) * 100).toFixed(1)) : 0,
+          grade: w.total_grade,
+          processedAt: w.created_at,
+          waferMapData: {
+            good: w.die_count - w.defect_count,
+            bad: w.defect_count,
+            total: w.die_count
+          },
+          defects: [{ type: w.failure_type, count: w.defect_count, percent: 0 }]
+        }))
+
+        setWafers(mappedWafers)
+        setTotalItems(data.total)
+      }
+    } catch (error) {
+      console.error("Failed to fetch wafers:", error)
+    }
+  }, [itemsPerPage])
+
+  // 페이지 변경 시 데이터 로드
+  useEffect(() => {
+    fetchWafers(currentPage)
+  }, [currentPage, fetchWafers])
 
   // 분석 결과 탭에서 선택된 웨이퍼 (Image Strip용)
   const [selectedResultWaferId, setSelectedResultWaferId] = useState<string | null>(null)
@@ -997,15 +1036,13 @@ export default function WaferModelingPage() {
     })
   }, [wafers, sortField, sortDirection])
 
-  // 페이지네이션된 웨이퍼 목록
+  // 페이지네이션된 웨이퍼 목록 (서버 사이드 페이지네이션이므로 그대로 반환)
   const paginatedWafers = useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage
-    const endIndex = startIndex + itemsPerPage
-    return sortedWafers.slice(startIndex, endIndex)
-  }, [sortedWafers, currentPage, itemsPerPage])
+    return sortedWafers
+  }, [sortedWafers])
 
   // 총 페이지 수
-  const totalPages = Math.ceil(sortedWafers.length / itemsPerPage)
+  const totalPages = Math.ceil(totalItems / itemsPerPage)
 
   // 정렬 변경 시 첫 페이지로 리셋
   useEffect(() => {
@@ -1278,48 +1315,31 @@ export default function WaferModelingPage() {
                         sortDirection={sortDirection}
                         onSort={handleSort}
                       />
-                      <TableHeader
-                        field="status"
-                        label="상태"
-                        sortField={sortField}
-                        sortDirection={sortDirection}
-                        onSort={handleSort}
-                      />
-                      <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                        <div className="flex items-center gap-1.5">
-                          <span>신뢰도</span>
-                          <div className="group relative">
-                            <Info className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
-                            <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 hidden group-hover:block z-50">
-                              <div className="bg-popover text-popover-foreground text-xs rounded-md px-2 py-1.5 shadow-lg border border-border whitespace-nowrap">
-                                AI 모델의 예측 확신도입니다
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </th>
-                      <TableHeader
-                        field="grade"
-                        label="등급"
-                        sortField={sortField}
-                        sortDirection={sortDirection}
-                        onSort={handleSort}
-                      />
                       <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                         불량 패턴
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                        진행 상태
+                        칩 수
                       </th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                        작업
+                      <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                        결함 밀도
+                      </th>
+                      <TableHeader
+                        field="grade"
+                        label="종합 등급"
+                        sortField={sortField}
+                        sortDirection={sortDirection}
+                        onSort={handleSort}
+                      />
+                      <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                        검사 일시
                       </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
                     {paginatedWafers.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
+                        <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
                           웨이퍼 데이터가 없습니다.
                         </td>
                       </tr>
@@ -1333,75 +1353,25 @@ export default function WaferModelingPage() {
                             <div className="font-medium text-foreground">{wafer.id}</div>
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
-                            <StatusBadge status={wafer.status} />
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            {wafer.status === "completed" && wafer.yield !== null ? (
-                              <div className="space-y-1 min-w-[120px]">
-                                <div className="flex items-center justify-between text-sm">
-                                  <span className="font-medium text-foreground">{wafer.yield}%</span>
-                                </div>
-                                <Progress value={wafer.yield} className="h-1.5" />
-                              </div>
+                            {wafer.defects && wafer.defects.length > 0 ? (
+                              <Badge variant="outline" className="text-xs">
+                                {wafer.defects[0].type}
+                              </Badge>
                             ) : (
                               <span className="text-muted-foreground">-</span>
                             )}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-foreground">
+                            {wafer.waferMapData?.total.toLocaleString() ?? '-'}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-foreground">
+                            {wafer.yield !== null ? `${(100 - wafer.yield).toFixed(2)}%` : '-'}
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <GradeBadge grade={wafer.grade} />
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            {wafer.status === "completed" ? (
-                              wafer.defects && wafer.defects.length > 0 ? (
-                                <Badge
-                                  variant="outline"
-                                  className="text-xs"
-                                >
-                                  {wafer.defects[0].type}
-                                </Badge>
-                              ) : (
-                                <Badge
-                                  variant="outline"
-                                  className="text-xs bg-success/10 border-success/30 text-success"
-                                >
-                                  정상
-                                </Badge>
-                              )
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            {wafer.status === "processing" ? (
-                              <div className="flex items-center gap-2 text-sm text-primary">
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                                <span>분석 진행 중...</span>
-                              </div>
-                            ) : wafer.status === "pending" ? (
-                              <div className="text-sm text-muted-foreground">대기 중</div>
-                            ) : (
-                              <div className="flex items-center gap-2 text-sm text-success">
-                                <CheckCircle2 className="w-4 h-4" />
-                                <span>완료</span>
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-right">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                if (wafer.status === "completed") {
-                                  handleWaferView(wafer.id)
-                                }
-                              }}
-                              disabled={wafer.status !== "completed"}
-                              className="text-muted-foreground hover:text-foreground"
-                            >
-                              <Eye className="w-4 h-4 mr-1" />
-                              상세보기
-                            </Button>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-muted-foreground">
+                            {wafer.processedAt ? new Date(wafer.processedAt).toLocaleString('ko-KR') : '-'}
                           </td>
                         </tr>
                       ))
@@ -1411,10 +1381,10 @@ export default function WaferModelingPage() {
               </div>
 
               {/* 페이지네이션 */}
-              {sortedWafers.length > itemsPerPage && (
+              {totalPages > 0 && (
                 <div className="flex items-center justify-between px-4 py-3 border-t border-border">
                   <div className="text-sm text-muted-foreground">
-                    전체 {sortedWafers.length}개 중 {((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, sortedWafers.length)}개 표시
+                    전체 {totalItems}개 중 {((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, totalItems)}개 표시
                   </div>
                   <div className="flex items-center gap-2">
                     <Button
@@ -1425,32 +1395,30 @@ export default function WaferModelingPage() {
                     >
                       <ChevronLeft className="w-4 h-4" />
                     </Button>
-                    <div className="flex items-center gap-1">
-                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                        let pageNum: number
-                        if (totalPages <= 5) {
-                          pageNum = i + 1
-                        } else if (currentPage <= 3) {
-                          pageNum = i + 1
-                        } else if (currentPage >= totalPages - 2) {
-                          pageNum = totalPages - 4 + i
-                        } else {
-                          pageNum = currentPage - 2 + i
-                        }
 
-                        return (
-                          <Button
-                            key={pageNum}
-                            variant={currentPage === pageNum ? "default" : "outline"}
-                            size="sm"
-                            onClick={() => setCurrentPage(pageNum)}
-                            className="min-w-[2.5rem]"
-                          >
-                            {pageNum}
-                          </Button>
-                        )
-                      })}
+                    <div className="flex items-center gap-2 mx-2">
+                      <span className="text-sm text-muted-foreground">Page</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={totalPages}
+                        value={jumpPage}
+                        onChange={(e) => setJumpPage(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const page = parseInt(jumpPage)
+                            if (page >= 1 && page <= totalPages) {
+                              setCurrentPage(page)
+                              setJumpPage("")
+                            }
+                          }
+                        }}
+                        placeholder={currentPage.toString()}
+                        className="w-12 h-8 px-2 text-center text-sm border rounded-md bg-background"
+                      />
+                      <span className="text-sm text-muted-foreground">of {totalPages}</span>
                     </div>
+
                     <Button
                       variant="outline"
                       size="sm"
