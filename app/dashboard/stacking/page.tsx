@@ -17,7 +17,8 @@ import {
   Info,
   AlertTriangle,
   CheckCircle2,
-  Database
+  Database,
+  XCircle
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -37,6 +38,7 @@ interface StackLayer {
   chipId?: string
   failureType?: string
   clusterLabel?: number
+  dieStatus?: number // 1: Normal, 2: Defect
 }
 
 // Generate demo HBM stack data
@@ -58,6 +60,17 @@ function generateStackLayers(count: number): StackLayer[] {
       return `${prefix}${id}-${randomHex}`
     }
 
+    // 데모용 Failure Type 설정
+    let failureType = "None"
+    let dieStatus = 1
+    if (status === "defect") {
+      failureType = Math.random() > 0.5 ? "Random" : "Near-full" // 빨간색 테스트용
+      dieStatus = 2
+    } else if (status === "warning") {
+      failureType = "Edge-Ring" // 주황색 테스트용
+      dieStatus = 2
+    }
+
     layers.push({
       id: i,
       name: `DRAM ${i}`,
@@ -67,7 +80,9 @@ function generateStackLayers(count: number): StackLayer[] {
       yield: 94 + Math.random() * 5,
       tsvAlignment: 98 + Math.random() * 2,
       bondingQuality: 96 + Math.random() * 4,
-      temperature: 75 + Math.random() * 10
+      temperature: 75 + Math.random() * 10,
+      failureType,
+      dieStatus
     })
   }
 
@@ -197,12 +212,27 @@ const StackVisualization3D = memo(function StackVisualization3D({
   const stackGap = expandedView ? 22 : 16
 
   const getLayerColor = (layer: StackLayer): string => {
-    // 상태에 따라 색상 결정: 정상(파란색), 주의(주황색)
-    if (layer.status === "warning" || layer.status === "defect") {
-      return "#f59e0b" // 주황색 (주의)
+    // die_status가 1이면 파랑색(정상)
+    if (layer.dieStatus === 1) {
+      return "#3b82f6" // Blue-500
     }
 
-    return "#3b82f6" // 파란색 (정상)
+    // die_status = 2 중에서 failure_type이 Random이나 Near-full을 가진 칩이면 빨간색(불량)
+    if (layer.dieStatus === 2 && layer.failureType && ["Random", "Near-full"].includes(layer.failureType)) {
+      return "#ef4444" // Red-500
+    }
+
+    // 그 외의 die_status=2는 저 색(주황색)을 사용
+    if (layer.dieStatus === 2) {
+      return "#f59e0b" // Amber-500
+    }
+
+    // Fallback: 기존 로직
+    if (layer.status === "warning" || layer.status === "defect") {
+      return "#f59e0b"
+    }
+
+    return "#3b82f6"
   }
 
   const centerX = 145
@@ -537,21 +567,34 @@ const LayerDetailPanel = memo(function LayerDetailPanel({ layer }: { layer: Stac
 })
 
 const StackQualityGrade = memo(function StackQualityGrade({ layers }: { layers: StackLayer[] }) {
-  const goodLayers = layers.filter(l => l.status === "good").length
-  // defect도 주의로 카운트
-  const warningLayers = layers.filter(l => l.status === "warning" || l.status === "defect").length
-  const totalYield = layers.reduce((acc, l) => acc + l.yield, 0) / layers.length
+  // New Logic: Use dieStatus and failureType
+  const goodLayers = layers.filter(l => l.dieStatus === 1).length
+
+  // Critical Defects: dieStatus 2 AND (Random OR Near-full)
+  const defectLayers = layers.filter(l =>
+    l.dieStatus === 2 && l.failureType && ["Random", "Near-full"].includes(l.failureType)
+  ).length
+
+  // Warnings: dieStatus 2 AND NOT (Random OR Near-full)
+  const warningLayers = layers.filter(l =>
+    l.dieStatus === 2 && !(l.failureType && ["Random", "Near-full"].includes(l.failureType))
+  ).length
+
+  const totalYield = layers.reduce((acc, l) => acc + l.yield, 0) / (layers.length || 1)
 
   let grade = "A"
   let gradeColor = "text-success"
 
-  // 등급 기준: 주의 레이어 수에 따라 결정
-  if (warningLayers > 2) {
+  // 등급 기준: 
+  // 1. 치명적 불량(Red)이 하나라도 있으면 C
+  // 2. 주의 레이어(Orange)가 있으면 B
+  // 3. 모두 정상이면 A
+  if (defectLayers > 0) {
     grade = "C"
-    gradeColor = "text-warning"
+    gradeColor = "text-destructive" // Red for C
   } else if (warningLayers > 0) {
     grade = "B"
-    gradeColor = "text-primary"
+    gradeColor = "text-warning" // Orange for B
   }
 
   if (layers.length === 0) return null;
@@ -576,6 +619,8 @@ const StackQualityGrade = memo(function StackQualityGrade({ layers }: { layers: 
             </div>
             <span className="font-medium text-foreground">{goodLayers}</span>
           </div>
+
+          {/* Warning Layers (Orange) */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-warning" />
@@ -583,6 +628,16 @@ const StackQualityGrade = memo(function StackQualityGrade({ layers }: { layers: 
             </div>
             <span className="font-medium text-foreground">{warningLayers}</span>
           </div>
+
+          {/* Critical Defect Layers (Red) - Only show if exists or just always show */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <XCircle className="w-4 h-4 text-destructive" />
+              <span className="text-muted-foreground">불량 레이어</span>
+            </div>
+            <span className="font-medium text-foreground">{defectLayers}</span>
+          </div>
+
           <div className="pt-2 border-t border-border flex items-center justify-between">
             <span className="text-muted-foreground">종합 수율</span>
             <span className="font-bold text-foreground">{totalYield.toFixed(1)}%</span>
@@ -600,6 +655,7 @@ interface BackendLayer {
   cluster_label: number
   inferred_type: string
   failure_type: string
+  die_status?: number
 }
 
 interface BackendStack {
@@ -620,6 +676,10 @@ export default function StackingVisualizationPage() {
   const [allStacks, setAllStacks] = useState<BackendStack[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [apiError, setApiError] = useState<string | null>(null)
+
+  // History state
+  const [historyItems, setHistoryItems] = useState<{ tsv_num: number; created_at: string; stack_count: number }[]>([])
+  const [selectedHistory, setSelectedHistory] = useState<string>("")
 
   // API 데이터 -> 프론트엔드 StackLayer 매핑
   const mapBackendLayersToState = useCallback((backendLayers: BackendLayer[]): StackLayer[] => {
@@ -644,15 +704,63 @@ export default function StackingVisualizationPage() {
         temperature: 75 + Math.random() * 10,
         chipId: bl.chip_id,
         failureType: bl.failure_type,
-        clusterLabel: bl.cluster_label
+        clusterLabel: bl.cluster_label,
+        dieStatus: bl.die_status
       }
     })
   }, [])
 
-  // 초기 더미 데이터 로드
+  // 초기 더미 데이터 로드 및 히스토리 조회
   useEffect(() => {
     setLayers(generateStackLayers(STACK_LAYERS))
+    fetchHistory()
   }, [])
+
+  const fetchHistory = async () => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
+      const res = await fetch(`${apiUrl}/stack/list`)
+      if (res.ok) {
+        const data = await res.json()
+        setHistoryItems(data)
+      }
+    } catch (e) {
+      console.error("Failed to fetch history:", e)
+    }
+  }
+
+  const handleHistorySelect = async (val: string) => {
+    setSelectedHistory(val)
+    const tsvNum = parseInt(val)
+    if (isNaN(tsvNum)) return
+
+    setIsLoading(true)
+    setApiError(null)
+    setStackIndex(0)
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
+      const res = await fetch(`${apiUrl}/stack/result/${tsvNum}`)
+      if (!res.ok) throw new Error("Failed to fetch stack result")
+
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+
+      if (data.stacks && Array.isArray(data.stacks) && data.stacks.length > 0) {
+        setAllStacks(data.stacks)
+        const firstStack = data.stacks[0]
+        setLayers(mapBackendLayersToState(firstStack.layers))
+      } else {
+        setAllStacks([])
+        setApiError("해당 기록에 스택 데이터가 없습니다.")
+      }
+    } catch (err: any) {
+      console.error(err)
+      setApiError(err.message)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   // 최신 PKL 분석 요청
   const handleAnalyzeLatest = async () => {
@@ -735,19 +843,20 @@ export default function StackingVisualizationPage() {
 
         <div className="flex items-center gap-2">
           {/* 기존 Reset 버튼: 데모용 리셋 역할 유지 또는 숨김 가능. 여기선 더미 리셋으로 둠 */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setAllStacks([])
-              setLayers(generateStackLayers(STACK_LAYERS))
-              setStackIndex(0)
-            }}
-            disabled={isLoading}
-          >
-            <RotateCcw className="w-4 h-4 mr-2" />
-            데모 리셋
-          </Button>
+          {/* History Select */}
+          <Select value={selectedHistory} onValueChange={handleHistorySelect} disabled={isLoading}>
+            <SelectTrigger className="w-[200px] h-9 text-xs">
+              <SelectValue placeholder="분석 이력 선택" />
+            </SelectTrigger>
+            <SelectContent>
+              {historyItems.map((item) => (
+                <SelectItem key={item.tsv_num} value={String(item.tsv_num)} className="text-xs">
+                  <span className="font-mono mr-2">#{item.tsv_num}</span>
+                  {new Date(item.created_at).toLocaleDateString()} ({item.stack_count} stacks)
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
           <Button
             variant="default" // 강조
@@ -946,15 +1055,19 @@ export default function StackingVisualizationPage() {
                       </td>
                       <td className="py-3 px-4">
                         <Badge
-                          variant={layer.status === "good" ? "default" : "outline"}
+                          variant="outline"
                           className={cn(
-                            "text-xs",
-                            layer.status === "good" && "bg-success text-success-foreground hover:bg-success/80",
-                            layer.status === "warning" && "border-warning text-warning hover:bg-warning/10",
-                            layer.status === "defect" && "border-destructive text-destructive hover:bg-destructive/10"
+                            "text-xs border-0",
+                            // Normal -> Blue/Green
+                            layer.dieStatus === 1 && "bg-blue-500/15 text-blue-500 hover:bg-blue-500/25",
+                            // Critical Defect -> Red
+                            (layer.dieStatus === 2 && layer.failureType && ["Random", "Near-full"].includes(layer.failureType)) && "bg-red-500/15 text-red-500 hover:bg-red-500/25",
+                            // Warning -> Orange (Default for other defects)
+                            (layer.dieStatus === 2 && !(layer.failureType && ["Random", "Near-full"].includes(layer.failureType))) && "bg-amber-500/15 text-amber-500 hover:bg-amber-500/25"
                           )}
                         >
-                          {layer.status === "good" ? "정상" : layer.status === "warning" ? "주의" : "불량"}
+                          {layer.dieStatus === 1 ? "정상" :
+                            (layer.failureType && ["Random", "Near-full"].includes(layer.failureType)) ? "불량" : "주의"}
                         </Badge>
                       </td>
                       <td className="py-3 px-4 text-sm text-muted-foreground">{layer.failureType || "N/A"}</td>
