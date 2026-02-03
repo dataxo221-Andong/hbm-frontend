@@ -33,7 +33,8 @@ import {
   Info,
   ChevronLeft,
   ChevronRight,
-  AlertTriangle
+  AlertTriangle,
+  BarChart3
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { WaferMapVisualization, WaferMapMini } from "@/components/wafer-map"
@@ -504,31 +505,34 @@ const WaferListNavigation = memo(function WaferListNavigation({
   )
 })
 
-const ClassificationStats = memo(function ClassificationStats({ wafers }: { wafers: WaferData[] }) {
-  // 완료된 웨이퍼만 계산
-  const completedWafers = wafers.filter(w => w.status === "completed" && w.waferMapData)
+// 대시보드 상단 통계 데이터 타입
+// 대시보드 상단 통계 데이터 타입 (수정됨)
+interface DashboardStats {
+  totalWafers: number
+  totalDie: number      // 추출 가능한 칩 수 (die_count 합계)
+  defectCount: number   // 불량 칩 수 (defect_count 합계)
+  defectDensity: number // 결함 밀도
+}
 
-  // 총 분석 웨이퍼 수
-  const totalWafers = completedWafers.length
+const ClassificationStats = memo(function ClassificationStats({ stats }: { stats: DashboardStats | null }) {
+  // 초기 로딩 중이거나 데이터가 없을 때를 위한 기본값 (Backend 응답 불일치 대비 안전하게 처리)
+  const safeStats = {
+    totalWafers: stats?.totalWafers ?? 0,
+    totalDie: stats?.totalDie ?? 0,
+    defectCount: stats?.defectCount ?? 0,
+    defectDensity: stats?.defectDensity ?? 0
+  }
 
-  // Good Die, Bad Die 합계 계산
-  const totalGoodDie = completedWafers.reduce((sum, w) => sum + (w.waferMapData?.good || 0), 0)
-  const totalBadDie = completedWafers.reduce((sum, w) => sum + (w.waferMapData?.bad || 0), 0)
-  const totalDie = totalGoodDie + totalBadDie
-
-  // 불량률 계산: Bad Die / (Good Die + Bad Die) * 100
-  const defectRate = totalDie > 0 ? (totalBadDie / totalDie) * 100 : 0
-
-  const stats = [
-    { label: "총 분석 웨이퍼", value: totalWafers.toLocaleString(), color: "text-foreground" },
-    { label: "Good Die", value: totalGoodDie.toLocaleString(), color: "text-success" },
-    { label: "Bad Die", value: totalBadDie.toLocaleString(), color: "text-destructive" },
-    { label: "불량률", value: `${defectRate.toFixed(2)}%`, color: "text-destructive" },
+  const statItems = [
+    { label: "총 분석 웨이퍼", value: safeStats.totalWafers.toLocaleString(), color: "text-foreground" },
+    { label: "추출 가능한 칩 수", value: safeStats.totalDie.toLocaleString(), color: "text-success" },
+    { label: "불량 칩 수", value: safeStats.defectCount.toLocaleString(), color: "text-destructive" },
+    { label: "결함 밀도", value: `${safeStats.defectDensity.toFixed(2)}%`, color: "text-destructive" },
   ]
 
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-      {stats.map((stat) => (
+      {statItems.map((stat) => (
         <Card key={stat.label}>
           <CardContent className="py-2 px-4">
             <div className="text-xs text-muted-foreground">{stat.label}</div>
@@ -622,7 +626,7 @@ export default function WaferModelingPage() {
   const [currentStep, setCurrentStep] = useState(0)
   const [isProcessing, setIsProcessing] = useState(false)
   const [selectedWafer, setSelectedWafer] = useState<string | null>(null)
-  const [wafers, setWafers] = useState<WaferData[]>(DEMO_WAFERS)
+  const [wafers, setWafers] = useState<WaferData[]>([])
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
   const [previewUrls, setPreviewUrls] = useState<string[]>([])
   const [showResultModal, setShowResultModal] = useState(false)
@@ -645,6 +649,26 @@ export default function WaferModelingPage() {
   const [showBatchResultModal, setShowBatchResultModal] = useState(false)
   const [batchAnalysisResults, setBatchAnalysisResults] = useState<AnalysisResult[]>([])
   const [batchProcessedAt, setBatchProcessedAt] = useState<string>("")
+
+  // [추가] 전체 통계 상태
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null)
+
+  // [추가] 초기 로드 시 전체 통계 가져오기
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://3.39.251.229:5000'
+        const res = await fetch(`${API_URL}/wafer/total_status`)
+        if (res.ok) {
+          const data = await res.json()
+          setDashboardStats(data)
+        }
+      } catch (error) {
+        console.error("Failed to fetch dashboard stats:", error)
+      }
+    }
+    fetchStats()
+  }, []) // Mount 시 1회 호출
 
   // 이미지 미리보기 URL 생성
   useEffect(() => {
@@ -748,10 +772,10 @@ export default function WaferModelingPage() {
         const analyzeData = await analyzeResponse.json()
         const resultData = analyzeData.result
 
-        // Map Backend Response to UI Model
-        const totalDie = resultData.dieCount || 1024
-        const goodDieCount = totalDie - (resultData.defectCount || 0)
-        const badDieCount = resultData.defectCount || 0
+        // Map Backend Response to UI Model (Backend uses snake_case)
+        const totalDie = resultData.die_count || 1024
+        const goodDieCount = totalDie - (resultData.defect_count || 0)
+        const badDieCount = resultData.defect_count || 0
         const yieldVal = totalDie > 0
           ? parseFloat(((goodDieCount / totalDie) * 100).toFixed(1))
           : 0
@@ -759,11 +783,11 @@ export default function WaferModelingPage() {
         const result: AnalysisResult = {
           waferId: analyzeData.lotName,
           yield: yieldVal,
-          grade: resultData.totalGrade || 'F',
+          grade: resultData.total_grade || 'F',
           goodDie: goodDieCount,
           badDie: badDieCount,
           defects: [
-            { type: resultData.failureType, count: badDieCount, percent: 100 }
+            { type: resultData.failure_type || 'None', count: badDieCount, percent: 100 }
           ],
           processedAt: new Date().toISOString(),
         }
@@ -799,9 +823,29 @@ export default function WaferModelingPage() {
         await new Promise(resolve => setTimeout(resolve, 500))
       }
 
-      // 배치 분석 결과 모달 표시
+      // 배치 분석 결과 모달 표시 (현재 누적된 모든 완료 웨이퍼를 대상으로 표시)
       if (batchResults.length > 0) {
-        setBatchAnalysisResults(batchResults)
+        // 기존 wafers에서 완료된 것들 + 이번에 분석된 것들 (중복 주의: wafers는 아래에서 업데이트됨)
+        // startProcessing 시점에서는 'setWafers'가 비동기라 아직 반영 안됐을 수 있으므로
+        // (existing completed wafers) + (new batchResults) 형태로 합쳐서 보여주는 것이 안전
+
+        const existingCompleted = wafers.filter(w => w.status === "completed")
+        const allCompletedResults: AnalysisResult[] = [
+          // 기존 완료된 웨이퍼들을 AnalysisResult로 변환
+          ...existingCompleted.map(w => ({
+            waferId: w.id,
+            yield: w.yield || 0,
+            grade: w.grade || 'F',
+            goodDie: w.waferMapData?.good || 0,
+            badDie: w.waferMapData?.bad || 0,
+            defects: w.defects || [],
+            processedAt: w.processedAt || new Date().toISOString()
+          })),
+          // 이번에 분석된 결과
+          ...batchResults
+        ]
+
+        setBatchAnalysisResults(allCompletedResults)
         setBatchProcessedAt(new Date().toISOString())
         setShowBatchResultModal(true)
       }
@@ -840,54 +884,44 @@ export default function WaferModelingPage() {
     setUploadedFiles([])
   }, [])
 
-  // 테스트용: 배치 분석 결과 모달 띄우기
-  const testBatchResultModal = useCallback(() => {
-    // 데모 데이터 생성 (100개 웨이퍼 시뮬레이션)
-    const defectTypes = ["Center", "Donut", "Edge-Ring", "Edge-Loc", "Loc", "Random", "Scratch", "Near-full"]
-    const demoResults: AnalysisResult[] = []
+  // 배치 결과 리포트 보기 (현재 화면에 있는 웨이퍼들 기준)
+  const handleShowBatchReport = useCallback(() => {
+    // 화면에 로드된 웨이퍼 중 분석 완료된 건들만 집계
+    const completedWafers = wafers.filter(w => w.status === "completed")
 
-    for (let i = 1; i <= 100; i++) {
-      const yieldVal = Math.random() * 20 + 80 // 80-100% 사이 랜덤 수율
-      const goodDie = Math.floor(1024 * (yieldVal / 100))
-      const badDie = 1024 - goodDie
-
-      // 일부 웨이퍼는 정상으로 설정 (약 10% 확률)
-      const isNormal = Math.random() < 0.1 || badDie === 0
-
-      demoResults.push({
-        waferId: `WF-2024-${String(i).padStart(3, '0')}`,
-        yield: parseFloat(yieldVal.toFixed(1)),
-        grade: yieldVal >= 95 ? 'A' : yieldVal >= 90 ? 'B' : yieldVal >= 85 ? 'C' : 'F',
-        goodDie: goodDie,
-        badDie: badDie,
-        defects: isNormal ? [] : [
-          { type: defectTypes[Math.floor(Math.random() * defectTypes.length)], count: badDie, percent: 100 }
-        ],
-        processedAt: new Date().toISOString(),
-      })
+    if (completedWafers.length === 0) {
+      alert("분석 완료된 웨이퍼가 없습니다.")
+      return
     }
 
-    // 웨이퍼 데이터도 업데이트 (모달에서 썸네일 표시용)
-    const demoWafers: WaferData[] = demoResults.map(result => ({
-      id: result.waferId,
-      batch: "BATCH-TEST",
-      status: "completed" as const,
-      yield: result.yield, // 신뢰도
-      grade: result.grade,
-      processedAt: result.processedAt,
-      waferMapData: {
-        good: result.goodDie,
-        bad: result.badDie,
-        total: 1024
-      },
-      defects: result.defects
-    }))
+    // WaferData -> AnalysisResult 변환
+    const results: AnalysisResult[] = completedWafers.map(w => {
+      // waferMapData가 있으면 사용하고, 없으면 0으로 처리
+      const good = w.waferMapData?.good || 0
+      const bad = w.waferMapData?.bad || 0
+      const total = good + bad
 
-    setWafers(prev => [...demoWafers, ...prev])
-    setBatchAnalysisResults(demoResults)
-    setBatchProcessedAt(new Date().toISOString())
+      // 결함 정보가 있으면 사용, 없으면 빈 배열
+      // (WaferData에 defects가 optional이므로 체크 필요)
+      const defects = w.defects || []
+
+      return {
+        waferId: w.id,
+        yield: w.yield || 0,
+        grade: w.grade || 'F',
+        goodDie: good,
+        badDie: bad,
+        defects: defects,
+        processedAt: w.processedAt || new Date().toISOString(),
+      }
+    })
+
+    setBatchAnalysisResults(results)
+    // 배치 시간은 가장 최근 웨이퍼의 처리 시간 또는 현재 시간
+    const lastProcessed = results.length > 0 ? results[0].processedAt : new Date().toISOString()
+    setBatchProcessedAt(lastProcessed)
     setShowBatchResultModal(true)
-  }, [])
+  }, [wafers])
 
   const handleWaferView = useCallback((waferId: string) => {
     setSelectedWafer(waferId)
@@ -1013,7 +1047,7 @@ export default function WaferModelingPage() {
   return (
     <div className="space-y-6">
       {/* Statistics Overview */}
-      <ClassificationStats wafers={wafers} />
+      <ClassificationStats stats={dashboardStats} />
 
       {/* Process Flow */}
       <Card>
@@ -1027,11 +1061,12 @@ export default function WaferModelingPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={testBatchResultModal}
-                className="bg-yellow-500/10 hover:bg-yellow-500/20 border-yellow-500/50 text-yellow-600 dark:text-yellow-400"
+                onClick={handleShowBatchReport}
+                className="bg-primary/10 hover:bg-primary/20 border-primary/50 text-primary"
+                disabled={wafers.filter(w => w.status === "completed").length === 0}
               >
-                <Eye className="w-4 h-4 mr-2" />
-                모달 테스트
+                <BarChart3 className="w-4 h-4 mr-2" />
+                배치 결과 리포트
               </Button>
               <Button variant="outline" size="sm" onClick={resetProcess} disabled={isProcessing}>
                 <RotateCcw className="w-4 h-4 mr-2" />
@@ -1776,56 +1811,49 @@ export default function WaferModelingPage() {
             const totalWafers = batchAnalysisResults.length
             const totalGoodDie = batchAnalysisResults.reduce((sum, r) => sum + r.goodDie, 0)
             const totalBadDie = batchAnalysisResults.reduce((sum, r) => sum + r.badDie, 0)
-            const avgYield = batchAnalysisResults.reduce((sum, r) => sum + r.yield, 0) / totalWafers
+            const totalDie = totalGoodDie + totalBadDie
 
-            // 불량 패턴 목록 (요구사항에 명시된 패턴)
-            const allDefectPatterns = ["Center", "Donut", "Edge-Ring", "Edge-Loc", "Loc", "Random", "Scratch", "Near-full"]
+            // 평균 결함 밀도 (전체 불량 칩 / 전체 칩)
+            const avgDefectDensity = totalDie > 0 ? (totalBadDie / totalDie) * 100 : 0
 
-            // 불량 패턴별 통계 계산 (웨이퍼 개수만)
-            const defectPatternStats: Record<string, { waferCount: number }> = {}
+            // 불량 패턴 분석 (웨이퍼 단위 카운트)
+            const patternCounts: Record<string, number> = {}
 
-            // 모든 패턴 초기화
-            allDefectPatterns.forEach(pattern => {
-              defectPatternStats[pattern] = { waferCount: 0 }
-            })
+            // 초기화
+            const defectTypes = ["Center", "Donut", "Edge-Ring", "Edge-Loc", "Loc", "Random", "Scratch", "Near-full"]
+            defectTypes.forEach(t => patternCounts[t] = 0)
+            patternCounts['None'] = 0
 
-            // 정상 웨이퍼 카운트
-            let normalWaferCount = 0
+            batchAnalysisResults.forEach(r => {
+              // 각 웨이퍼의 대표 불량 유형 확인
+              let pType = 'None'
 
-            // 실제 데이터에서 통계 계산
-            batchAnalysisResults.forEach(result => {
-              // defects가 없거나, 빈 배열이거나, 모든 defect의 count가 0인 경우 정상 웨이퍼로 간주
-              const hasDefects = result.defects && result.defects.length > 0 && result.defects.some(d => d.count > 0)
+              if (r.defects && r.defects.length > 0) {
+                // defects 배열의 첫 번째 요소를 대표 유형으로 간주
+                const mainDefect = r.defects[0]
+                if (mainDefect.type) {
+                  pType = mainDefect.type
+                }
+              }
 
-              if (!hasDefects) {
-                // 불량 패턴이 없는 정상 웨이퍼
-                normalWaferCount += 1
+              if (patternCounts[pType] !== undefined) {
+                patternCounts[pType]++
               } else {
-                // 불량 패턴이 있는 웨이퍼
-                result.defects.forEach(defect => {
-                  if (defect.count > 0) {
-                    const pattern = defect.type
-                    if (defectPatternStats[pattern]) {
-                      defectPatternStats[pattern].waferCount += 1
-                    }
-                  }
-                })
+                // 정의되지 않은 패턴이라도 카운트
+                patternCounts[pType] = (patternCounts[pType] || 0) + 1
               }
             })
 
-            // 불량 패턴을 웨이퍼 개수 기준으로 정렬
-            const sortedDefectPatterns = Object.entries(defectPatternStats)
-              .filter(([_, stats]) => stats.waferCount > 0)
-              .sort((a, b) => b[1].waferCount - a[1].waferCount)
-            const maxWaferCount = Math.max(
-              ...sortedDefectPatterns.map(([_, stats]) => stats.waferCount),
-              normalWaferCount,
-              1
-            )
+            // 카운트가 있는 패턴만 정렬 (많은 순)
+            const sortedPatterns = Object.entries(patternCounts)
+              .filter(([_, count]) => count > 0)
+              .sort((a, b) => b[1] - a[1])
+
+            const maxCount = Math.max(...Object.values(patternCounts), 1)
 
             return (
               <div className="space-y-6 py-4">
-                {/* 핵심 지표 카드 - 2x2 그리드 (컴팩트) */}
+                {/* 핵심 지표 카드 - 2x2 그리드 */}
                 <div className="grid grid-cols-2 gap-4">
                   {/* 첫 번째 줄: 왼쪽 - 총 분석 웨이퍼 */}
                   <Card className="bg-card border-border">
@@ -1838,21 +1866,21 @@ export default function WaferModelingPage() {
                     </CardContent>
                   </Card>
 
-                  {/* 첫 번째 줄: 오른쪽 - 평균 수율 */}
-                  <Card className="bg-primary/10 border-primary/20">
+                  {/* 첫 번째 줄: 오른쪽 - 평균 결함 밀도 */}
+                  <Card className="bg-destructive/10 border-destructive/20">
                     <CardContent className="py-1 px-6">
-                      <div className="text-sm text-muted-foreground mb-0.5">평균 수율</div>
+                      <div className="text-sm text-muted-foreground mb-0.5">평균 결함 밀도</div>
                       <div className="flex items-baseline gap-2">
-                        <div className="text-3xl font-bold text-primary">{avgYield.toFixed(1)}</div>
+                        <div className="text-3xl font-bold text-destructive">{avgDefectDensity.toFixed(2)}</div>
                         <div className="text-sm text-muted-foreground">%</div>
                       </div>
                     </CardContent>
                   </Card>
 
-                  {/* 두 번째 줄: 왼쪽 - 총 Good Die */}
+                  {/* 두 번째 줄: 왼쪽 - 양품 칩 */}
                   <Card className="bg-success/10 border-success/20">
                     <CardContent className="py-1 px-6">
-                      <div className="text-sm text-muted-foreground mb-0.5">총 Good Die</div>
+                      <div className="text-sm text-muted-foreground mb-0.5">양품 칩</div>
                       <div className="flex items-baseline gap-2">
                         <div className="text-3xl font-bold text-success">
                           {totalGoodDie.toLocaleString()}
@@ -1862,10 +1890,10 @@ export default function WaferModelingPage() {
                     </CardContent>
                   </Card>
 
-                  {/* 두 번째 줄: 오른쪽 - 총 Bad Die */}
+                  {/* 두 번째 줄: 오른쪽 - 불량 칩 */}
                   <Card className="bg-destructive/10 border-destructive/20">
                     <CardContent className="py-1 px-6">
-                      <div className="text-sm text-muted-foreground mb-0.5">총 Bad Die</div>
+                      <div className="text-sm text-muted-foreground mb-0.5">불량 칩</div>
                       <div className="flex items-baseline gap-2">
                         <div className="text-3xl font-bold text-destructive">
                           {totalBadDie.toLocaleString()}
@@ -1881,37 +1909,15 @@ export default function WaferModelingPage() {
                   <CardHeader>
                     <CardTitle>불량 패턴 분석 통계</CardTitle>
                     <CardDescription>
-                      배치 내 불량 유형별 검출 현황
+                      배치 내 불량 유형별 검출 현황 (Failure Type Analysis)
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
-                      {/* 정상 웨이퍼 */}
-                      {normalWaferCount > 0 && (
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <span className="text-sm font-medium text-foreground min-w-[120px]">
-                                정상
-                              </span>
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <span>웨이퍼: {normalWaferCount}건</span>
-                              </div>
-                            </div>
-                            <div className="text-sm font-semibold text-success">
-                              {normalWaferCount}
-                            </div>
-                          </div>
-                          <Progress
-                            value={(normalWaferCount / maxWaferCount) * 100}
-                            className="h-3"
-                          />
-                        </div>
-                      )}
+                      {sortedPatterns.map(([pattern, count]) => {
+                        const percentage = (count / totalWafers) * 100 // 전체 웨이퍼 대비 비율로 변경 (그래프 바 길이)
+                        const barWidth = (count / maxCount) * 100 // 최대값 기준 상대 길이 (시각적 균형)
 
-                      {/* 검출된 불량 패턴 (막대 그래프 포함) */}
-                      {sortedDefectPatterns.map(([pattern, stats]) => {
-                        const percentage = (stats.waferCount / maxWaferCount) * 100
                         return (
                           <div key={pattern} className="space-y-2">
                             <div className="flex items-center justify-between">
@@ -1920,20 +1926,25 @@ export default function WaferModelingPage() {
                                   {pattern}
                                 </span>
                                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                  <span>웨이퍼: {stats.waferCount}건</span>
+                                  <span>웨이퍼: {count}건</span>
                                 </div>
                               </div>
                               <div className="text-sm font-semibold text-foreground">
-                                {stats.waferCount}
+                                {count}
                               </div>
                             </div>
                             <Progress
-                              value={percentage}
-                              className="h-3"
+                              value={barWidth}
+                              className="h-3 [&>div]:bg-primary"
                             />
                           </div>
                         )
                       })}
+                      {sortedPatterns.length === 0 && (
+                        <div className="text-center text-muted-foreground text-sm py-4">
+                          데이터가 없습니다.
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -1949,10 +1960,7 @@ export default function WaferModelingPage() {
                   </Button>
                   <Button
                     className="flex-1"
-                    onClick={() => {
-                      // TODO: 전체 결과 리포트 다운로드 기능 구현
-                      alert("전체 결과 리포트 다운로드 기능은 곧 구현될 예정입니다.")
-                    }}
+                    onClick={() => alert("리포트 저장 기능 준비 중")}
                   >
                     <Download className="w-4 h-4 mr-2" />
                     전체 결과 리포트 다운로드 (.csv / .pdf)
