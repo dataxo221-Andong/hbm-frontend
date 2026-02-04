@@ -583,8 +583,16 @@ const LayerDetailPanel = memo(function LayerDetailPanel({ layer }: { layer: Stac
   )
 })
 
-const StackQualityGrade = memo(function StackQualityGrade({ layers }: { layers: StackLayer[] }) {
-  // New Logic: Use dieStatus and failureType
+const StackQualityGrade = memo(function StackQualityGrade({
+  layers,
+  grade = "N/A",
+  totalYield = 0
+}: {
+  layers: StackLayer[],
+  grade?: string,
+  totalYield?: number
+}) {
+  // New Logic: Use props from backend if available
   const goodLayers = layers.filter(l => l.dieStatus === 1).length
 
   // Critical Defects: dieStatus 2 AND (Random OR Near-full)
@@ -597,22 +605,10 @@ const StackQualityGrade = memo(function StackQualityGrade({ layers }: { layers: 
     l.dieStatus === 2 && !(l.failureType && ["Random", "Near-full"].includes(l.failureType))
   ).length
 
-  const totalYield = layers.reduce((acc, l) => acc + l.yield, 0) / (layers.length || 1)
-
-  let grade = "A"
-  let gradeColor = "text-success"
-
-  // 등급 기준: 
-  // 1. 치명적 불량(Red)이 하나라도 있으면 C
-  // 2. 주의 레이어(Orange)가 있으면 B
-  // 3. 모두 정상이면 A
-  if (defectLayers > 0) {
-    grade = "C"
-    gradeColor = "text-destructive" // Red for C
-  } else if (warningLayers > 0) {
-    grade = "B"
-    gradeColor = "text-warning" // Orange for B
-  }
+  let gradeColor = "text-muted-foreground"
+  if (grade === "A") gradeColor = "text-success"
+  else if (grade === "B") gradeColor = "text-warning"
+  else if (grade === "C") gradeColor = "text-destructive"
 
   if (layers.length === 0) return null;
 
@@ -656,8 +652,8 @@ const StackQualityGrade = memo(function StackQualityGrade({ layers }: { layers: 
           </div>
 
           <div className="pt-2 border-t border-border flex items-center justify-between">
-            <span className="text-muted-foreground">종합 수율</span>
-            <span className="font-bold text-foreground">{totalYield.toFixed(1)}%</span>
+            <span className="text-muted-foreground">종합 적층 수율</span>
+            <span className="font-bold text-foreground">{totalYield.toFixed(2)}%</span>
           </div>
         </div>
       </CardContent>
@@ -680,6 +676,8 @@ interface BackendLayer {
 interface BackendStack {
   stack_id: string
   score: string
+  final_grade?: string
+  final_yield?: number
   layers: BackendLayer[]
 }
 
@@ -707,8 +705,22 @@ export default function StackingVisualizationPage() {
     // 백엔드는 layer_idx 1부터 시작.
 
     return backendLayers.map((bl) => {
-      // status 매핑
-      const status = getStatusFromFailure(bl.failure_type)
+      // status 매핑 Logic Update
+      let status: LayerStatus = 'good';
+
+      const dStatus = bl.die_status !== undefined ? bl.die_status : 1;
+      const fType = bl.failure_type;
+
+      if (dStatus === 1) {
+        status = 'good';
+      } else {
+        // die_status == 2 (Defect candidate)
+        if (["Random", "Near-full"].includes(fType)) {
+          status = 'defect';
+        } else {
+          status = 'warning';
+        }
+      }
 
       return {
         id: bl.layer_idx,
@@ -734,6 +746,14 @@ export default function StackingVisualizationPage() {
     // setLayers(generateStackLayers(STACK_LAYERS)) // Demo removed
     fetchHistory()
   }, [])
+
+  // Stack 인덱스 변경 시 레이어 데이터 자동 동기화
+  useEffect(() => {
+    if (allStacks.length > 0 && allStacks[stackIndex]) {
+      setLayers(mapBackendLayersToState(allStacks[stackIndex].layers))
+      setSelectedLayer(null)
+    }
+  }, [stackIndex, allStacks, mapBackendLayersToState])
 
   const fetchHistory = async () => {
     try {
@@ -1020,116 +1040,122 @@ export default function StackingVisualizationPage() {
 
         {/* Side Panel */}
         <div className="space-y-6 lg:col-span-1">
-          {/* Quality Grade */}
-          <StackQualityGrade layers={layers} />
+          {/* Details Panel */}
+          <div>
+            <StackQualityGrade
+              layers={layers}
+              grade={currentStackInfo?.final_grade}
+              totalYield={currentStackInfo?.final_yield}
+            />
+            <div className="mt-6">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">레이어 상세</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {selectedLayerData ? (
+                    <LayerDetailPanel layer={selectedLayerData} />
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <Info className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">레이어를 클릭하여</p>
+                      <p className="text-sm">상세 정보를 확인하세요</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
 
-          {/* Selected Layer Detail */}
+          {/* Layer List */}
           <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">레이어 상세</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {selectedLayerData ? (
-                <LayerDetailPanel layer={selectedLayerData} />
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Info className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">레이어를 클릭하여</p>
-                  <p className="text-sm">상세 정보를 확인하세요</p>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>레이어별 상세 정보</CardTitle>
+                  <CardDescription>각 레이어의 품질 지표 및 파라미터</CardDescription>
                 </div>
-              )}
-            </CardContent>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setIsLayerDetailExpanded(!isLayerDetailExpanded)}
+                  className="h-8 w-8"
+                >
+                  {isLayerDetailExpanded ? (
+                    <ChevronUp className="w-4 h-4" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4" />
+                  )}
+                </Button>
+              </div>
+            </CardHeader>
+            {isLayerDetailExpanded && (
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-border">
+                        <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">레이어</th>
+                        <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Chip ID</th>
+                        <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">타입</th>
+                        <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">상태</th>
+                        <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">불량유형</th>
+                        <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">수율</th>
+                        <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">온도</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {layers.map((layer) => (
+                        <tr
+                          key={layer.id}
+                          className={cn(
+                            "border-b border-border/50 hover:bg-muted/50 cursor-pointer transition-colors",
+                            selectedLayer === layer.id && "bg-muted"
+                          )}
+                          onClick={() => setSelectedLayer(layer.id)}
+                        >
+                          <td className="py-3 px-4 text-sm font-medium text-foreground">{layer.name}</td>
+                          <td className="py-3 px-4 text-sm text-muted-foreground font-mono">{layer.chipId || layer.chipUid.substring(0, 12) + "..."}</td>
+                          <td className="py-3 px-4">
+                            <Badge variant="outline" className="text-xs">
+                              {layer.type}
+                            </Badge>
+                          </td>
+                          <td className="py-3 px-4">
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "text-xs border-0",
+                                // Normal -> Blue/Green
+                                layer.dieStatus === 1 && "bg-blue-500/15 text-blue-500 hover:bg-blue-500/25",
+                                // Critical Defect -> Red
+                                (layer.dieStatus === 2 && layer.failureType && ["Random", "Near-full"].includes(layer.failureType)) && "bg-red-500/15 text-red-500 hover:bg-red-500/25",
+                                // Warning -> Orange (Default for other defects)
+                                (layer.dieStatus === 2 && !(layer.failureType && ["Random", "Near-full"].includes(layer.failureType))) && "bg-amber-500/15 text-amber-500 hover:bg-amber-500/25"
+                              )}
+                            >
+                              {layer.dieStatus === 1 ? "정상" :
+                                (layer.failureType && ["Random", "Near-full"].includes(layer.failureType)) ? "불량" : "주의"}
+                            </Badge>
+                          </td>
+                          <td className="py-3 px-4 text-sm text-muted-foreground">{layer.failureType || "N/A"}</td>
+                          <td className="py-3 px-4 text-sm text-muted-foreground">{layer.yield.toFixed(1)}%</td>
+                          <td className="py-3 px-4 text-sm text-muted-foreground">{layer.temperature.toFixed(1)}°C</td>
+                        </tr>
+                      ))}
+                      {layers.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="text-center py-4 text-muted-foreground">데이터가 없습니다.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            )}
           </Card>
         </div>
       </div>
-
-      {/* Layer List */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>레이어별 상세 정보</CardTitle>
-              <CardDescription>각 레이어의 품질 지표 및 파라미터</CardDescription>
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setIsLayerDetailExpanded(!isLayerDetailExpanded)}
-              className="h-8 w-8"
-            >
-              {isLayerDetailExpanded ? (
-                <ChevronUp className="w-4 h-4" />
-              ) : (
-                <ChevronDown className="w-4 h-4" />
-              )}
-            </Button>
-          </div>
-        </CardHeader>
-        {isLayerDetailExpanded && (
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">레이어</th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Chip ID</th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">타입</th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">상태</th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">불량유형</th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">수율</th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">온도</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {layers.map((layer) => (
-                    <tr
-                      key={layer.id}
-                      className={cn(
-                        "border-b border-border/50 hover:bg-muted/50 cursor-pointer transition-colors",
-                        selectedLayer === layer.id && "bg-muted"
-                      )}
-                      onClick={() => setSelectedLayer(layer.id)}
-                    >
-                      <td className="py-3 px-4 text-sm font-medium text-foreground">{layer.name}</td>
-                      <td className="py-3 px-4 text-sm text-muted-foreground font-mono">{layer.chipId || layer.chipUid.substring(0, 12) + "..."}</td>
-                      <td className="py-3 px-4">
-                        <Badge variant="outline" className="text-xs">
-                          {layer.type}
-                        </Badge>
-                      </td>
-                      <td className="py-3 px-4">
-                        <Badge
-                          variant="outline"
-                          className={cn(
-                            "text-xs border-0",
-                            // Normal -> Blue/Green
-                            layer.dieStatus === 1 && "bg-blue-500/15 text-blue-500 hover:bg-blue-500/25",
-                            // Critical Defect -> Red
-                            (layer.dieStatus === 2 && layer.failureType && ["Random", "Near-full"].includes(layer.failureType)) && "bg-red-500/15 text-red-500 hover:bg-red-500/25",
-                            // Warning -> Orange (Default for other defects)
-                            (layer.dieStatus === 2 && !(layer.failureType && ["Random", "Near-full"].includes(layer.failureType))) && "bg-amber-500/15 text-amber-500 hover:bg-amber-500/25"
-                          )}
-                        >
-                          {layer.dieStatus === 1 ? "정상" :
-                            (layer.failureType && ["Random", "Near-full"].includes(layer.failureType)) ? "불량" : "주의"}
-                        </Badge>
-                      </td>
-                      <td className="py-3 px-4 text-sm text-muted-foreground">{layer.failureType || "N/A"}</td>
-                      <td className="py-3 px-4 text-sm text-muted-foreground">{layer.yield.toFixed(1)}%</td>
-                      <td className="py-3 px-4 text-sm text-muted-foreground">{layer.temperature.toFixed(1)}°C</td>
-                    </tr>
-                  ))}
-                  {layers.length === 0 && (
-                    <tr>
-                      <td colSpan={7} className="text-center py-4 text-muted-foreground">데이터가 없습니다.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        )}
-      </Card>
     </div>
   )
 }
