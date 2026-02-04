@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Search,
   Package,
@@ -19,6 +21,8 @@ import {
   Clock,
   Boxes,
   Sparkles,
+  Layers,
+  Table2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { fetchChipInspectionRows, type ChipInspectionRow } from "@/lib/api/chip-inspection"
@@ -140,17 +144,6 @@ const inventoryData: InventoryItem[] = [
   },
 ]
 
-const consumptionHistory = [
-  { date: "01/14", consumption: 180, production: 200 },
-  { date: "01/15", consumption: 195, production: 185 },
-  { date: "01/16", consumption: 210, production: 220 },
-  { date: "01/17", consumption: 175, production: 190 },
-  { date: "01/18", consumption: 220, production: 200 },
-  { date: "01/19", consumption: 185, production: 210 },
-  { date: "01/20", consumption: 200, production: 195 },
-  { date: "01/21", consumption: 190, production: 205 },
-]
-
 // Demo quality/defect summary (노션: 정상/불량 + 불량유형 기반)
 const DEFAULT_QUALITY_SUMMARY = {
   total: 1000,
@@ -224,6 +217,76 @@ function normalizeFailureType(raw: unknown): CanonicalFailureType | null {
   // NOTE: Edge/Other/Particle 등은 요구사항에 없으므로 null 처리(표시 X)
   return map[key] ?? null
 }
+
+type CombinationRisk = "recommended" | "caution" | "danger"
+
+function riskForPenalty(penalty: number): CombinationRisk {
+  // 요구사항:
+  // 0.1 ~ 0.3: 초록(적극 추천)
+  // 0.4 ~ 0.7: 노랑(주의)
+  // 0.8 ~ 1.0: 빨강(위험)
+  // 경계 밖(0.31~0.39 등)은 "주의"로 처리
+  if (penalty <= 0.3) return "recommended"
+  if (penalty <= 0.7) return "caution"
+  return "danger"
+}
+
+function riskBadgeClass(risk: CombinationRisk): string {
+  switch (risk) {
+    case "recommended":
+      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+    case "caution":
+      return "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+    case "danger":
+      return "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400"
+  }
+}
+
+function riskLabel(risk: CombinationRisk): string {
+  switch (risk) {
+    case "recommended":
+      return "추천"
+    case "caution":
+      return "주의"
+    case "danger":
+      return "위험"
+  }
+}
+
+// 적층 조합(base type) 패널티 (낮을수록 좋은 조합)
+// 스크린샷 기반 값 그대로 반영
+const BASE_TYPE_PENALTY: Array<{ a: CanonicalFailureType; b: CanonicalFailureType; penalty: number }> = [
+  { a: "Center", b: "Center", penalty: 1.0 },
+  { a: "Donut", b: "Donut", penalty: 0.85 },
+  { a: "Edge-Ring", b: "Edge-Ring", penalty: 0.8 },
+  { a: "Donut", b: "Center", penalty: 0.7 },
+  { a: "Center", b: "Edge-Ring", penalty: 0.55 },
+  { a: "Donut", b: "Edge-Ring", penalty: 0.6 },
+  { a: "Center", b: "Loc", penalty: 0.45 },
+  { a: "Center", b: "Edge-Loc", penalty: 0.45 },
+  { a: "Center", b: "Scratch", penalty: 0.4 },
+  { a: "Donut", b: "Loc", penalty: 0.4 },
+  { a: "Donut", b: "Edge-Loc", penalty: 0.4 },
+  { a: "Donut", b: "Scratch", penalty: 0.35 },
+  { a: "Edge-Ring", b: "Loc", penalty: 0.35 },
+  { a: "Edge-Ring", b: "Edge-Loc", penalty: 0.35 },
+  { a: "Edge-Ring", b: "Scratch", penalty: 0.3 },
+  { a: "Loc", b: "Loc", penalty: 0.3 },
+  { a: "Edge-Loc", b: "Edge-Loc", penalty: 0.3 },
+  { a: "Scratch", b: "Scratch", penalty: 0.25 },
+  { a: "Loc", b: "Edge-Loc", penalty: 0.28 },
+  { a: "Loc", b: "Scratch", penalty: 0.25 },
+  { a: "Edge-Loc", b: "Scratch", penalty: 0.25 },
+  { a: "Random", b: "Random", penalty: 0.15 },
+  { a: "Random", b: "Loc", penalty: 0.18 },
+  { a: "Random", b: "Edge-Loc", penalty: 0.18 },
+  { a: "Random", b: "Scratch", penalty: 0.18 },
+  { a: "Random", b: "Donut", penalty: 0.25 },
+  { a: "Random", b: "Center", penalty: 0.25 },
+  { a: "Random", b: "Edge-Ring", penalty: 0.25 },
+  { a: "Near-full", b: "Near-full", penalty: 0.2 },
+  { a: "None", b: "None", penalty: 0.1 },
+]
 
 const statusConfig: Record<StockStatus, { label: string; color: string; bgColor: string }> = {
   optimal: { label: "적정", color: "text-success", bgColor: "bg-success/10" },
@@ -330,12 +393,14 @@ function AIQualityPanel({
   isLoading,
   error,
   onReanalyze,
+  className,
 }: {
   qualitySummary: { total: number; normal: number; defect: number }
   failureTypeDistribution: Array<{ type: string; count: number; color: string }>
   isLoading: boolean
   error: string | null
   onReanalyze: () => void
+  className?: string
 }) {
   const defectRate = Math.round((qualitySummary.defect / qualitySummary.total) * 1000) / 10
   const topFailure =
@@ -347,7 +412,7 @@ function AIQualityPanel({
       : null
 
   return (
-    <Card>
+    <Card className={cn("flex flex-col lg:h-[460px] overflow-hidden", className)}>
       <CardHeader>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -381,141 +446,353 @@ function AIQualityPanel({
           </div>
         </div>
       </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
-          {error && (
-            <div className="text-xs text-muted-foreground">
-              <Badge variant="outline" className="mr-2">
-                API
-              </Badge>
-              {error} (데모 데이터로 표시 중)
-            </div>
-          )}
-
-          {/* Quality Chart (노션: 현재 재고상황 + 불량유형) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="h-[200px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#1f2937",
-                      border: "1px solid #374151",
-                      borderRadius: "8px",
-                      color: "#f3f4f6",
-                    }}
-                  />
-                  <Pie
-                    data={[
-                      { name: "정상", value: qualitySummary.normal, color: "#22c55e" },
-                      { name: "불량", value: qualitySummary.defect, color: "#ef4444" },
-                    ]}
-                    dataKey="value"
-                    nameKey="name"
-                    innerRadius={55}
-                    outerRadius={80}
-                    paddingAngle={2}
-                  >
-                    <Cell fill="#22c55e" />
-                    <Cell fill="#ef4444" />
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-
-            <div className="h-[200px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={failureTypeDistribution} margin={{ left: 8, right: 8, bottom: 26 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis
-                    dataKey="type"
-                    stroke="#9ca3af"
-                    fontSize={11}
-                    interval={0}
-                    angle={-18}
-                    textAnchor="end"
-                    height={44}
-                  />
-                  <YAxis stroke="#9ca3af" fontSize={12} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#1f2937",
-                      border: "1px solid #374151",
-                      borderRadius: "8px",
-                      color: "#f3f4f6",
-                    }}
-                  />
-                  <Bar dataKey="count" name="패턴 수" radius={[4, 4, 0, 0]}>
-                    {failureTypeDistribution.map((entry) => (
-                      <Cell key={entry.type} fill={entry.color} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* AI Insights */}
-          <div className="space-y-2">
-            <h4 className="text-sm font-medium text-foreground flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-primary" />
-              AI 인사이트
-            </h4>
-            <div className="space-y-2 text-sm">
-              <div className="flex items-start gap-2 p-2 rounded-lg bg-destructive/10">
-                <AlertTriangle className="w-4 h-4 text-destructive mt-0.5" />
-                <div>
-                  <span className="text-foreground font-medium">불량률</span>
-                  <span className="text-muted-foreground">
-                    {" "}- 현재 불량률 {Number.isFinite(defectRate) ? defectRate : 0}%
-                    {topFailure ? ` (상위 불량유형: ${topFailure.type})` : ""}.
-                  </span>
-                </div>
+      <CardContent className="flex-1 min-h-0">
+        <ScrollArea className="h-full pr-3">
+          <div className="space-y-4">
+            {error && (
+              <div className="text-xs text-muted-foreground">
+                <Badge variant="outline" className="mr-2">
+                  API
+                </Badge>
+                {error} (데모 데이터로 표시 중)
               </div>
-              <div className="flex items-start gap-2 p-2 rounded-lg bg-success/10">
-                <CheckCircle2 className="w-4 h-4 text-success mt-0.5" />
-                <div>
-                  <span className="text-foreground font-medium">정상 수량</span>
-                  <span className="text-muted-foreground">
-                    {" "}
-                    - 정상 {qualitySummary.normal.toLocaleString()}개 / 총 {qualitySummary.total.toLocaleString()}개.
-                  </span>
-                </div>
+            )}
+
+            {/* Quality Chart (노션: 현재 재고상황 + 불량유형) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="h-[200px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "#1f2937",
+                        border: "1px solid #374151",
+                        borderRadius: "8px",
+                        color: "#f3f4f6",
+                      }}
+                    />
+                    <Pie
+                      data={[
+                        { name: "정상", value: qualitySummary.normal, color: "#22c55e" },
+                        { name: "불량", value: qualitySummary.defect, color: "#ef4444" },
+                      ]}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={55}
+                      outerRadius={80}
+                      paddingAngle={2}
+                    >
+                      <Cell fill="#22c55e" />
+                      <Cell fill="#ef4444" />
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="h-[200px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={failureTypeDistribution} margin={{ left: 8, right: 8, bottom: 26 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                    <XAxis
+                      dataKey="type"
+                      stroke="#9ca3af"
+                      fontSize={11}
+                      interval={0}
+                      angle={-18}
+                      textAnchor="end"
+                      height={44}
+                    />
+                    <YAxis stroke="#9ca3af" fontSize={12} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "#1f2937",
+                        border: "1px solid #374151",
+                        borderRadius: "8px",
+                        color: "#f3f4f6",
+                      }}
+                    />
+                    <Bar dataKey="count" name="패턴 수" radius={[4, 4, 0, 0]}>
+                      {failureTypeDistribution.map((entry) => (
+                        <Cell key={entry.type} fill={entry.color} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
             </div>
+
+            {/* AI Insights */}
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium text-foreground flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-primary" />
+                AI 인사이트
+              </h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex items-start gap-2 p-2 rounded-lg bg-destructive/10">
+                  <AlertTriangle className="w-4 h-4 text-destructive mt-0.5" />
+                  <div>
+                    <span className="text-foreground font-medium">불량률</span>
+                    <span className="text-muted-foreground">
+                      {" "}- 현재 불량률 {Number.isFinite(defectRate) ? defectRate : 0}%
+                      {topFailure ? ` (상위 불량유형: ${topFailure.type})` : ""}.
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2 p-2 rounded-lg bg-success/10">
+                  <CheckCircle2 className="w-4 h-4 text-success mt-0.5" />
+                  <div>
+                    <span className="text-foreground font-medium">정상 수량</span>
+                    <span className="text-muted-foreground">
+                      {" "}
+                      - 정상 {qualitySummary.normal.toLocaleString()}개 / 총 {qualitySummary.total.toLocaleString()}개.
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
+        </ScrollArea>
       </CardContent>
     </Card>
   )
 }
 
-function ConsumptionChart() {
+function BaseTypePenaltyPanel() {
+  const [sortBy, setSortBy] = useState<"asc" | "desc">("asc")
+  const [typeA, setTypeA] = useState<CanonicalFailureType | "all">("all")
+  const [typeB, setTypeB] = useState<CanonicalFailureType | "all">("all")
+  const [q, setQ] = useState("")
+
+  const allTypes = CANONICAL_FAILURE_TYPES
+
+  const rows = useMemo(() => {
+    const query = q.trim().toLowerCase()
+    const filtered = BASE_TYPE_PENALTY.filter((r) => {
+      if (typeA !== "all" && r.a !== typeA) return false
+      if (typeB !== "all" && r.b !== typeB) return false
+      if (!query) return true
+      return `${r.a} ${r.b}`.toLowerCase().includes(query)
+    })
+
+    const sorted = [...filtered].sort((x, y) => (sortBy === "asc" ? x.penalty - y.penalty : y.penalty - x.penalty))
+    return sorted
+  }, [q, sortBy, typeA, typeB])
+
+  const riskCounts = useMemo(() => {
+    const counts: Record<CombinationRisk, number> = { recommended: 0, caution: 0, danger: 0 }
+    for (const r of BASE_TYPE_PENALTY) counts[riskForPenalty(r.penalty)] += 1
+    return counts
+  }, [])
+
+  const penaltyMap = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const r of BASE_TYPE_PENALTY) m.set(`${r.a}__${r.b}`, r.penalty)
+    return m
+  }, [])
+
   return (
-    <Card>
+    <Card className="flex flex-col lg:h-[460px] overflow-hidden">
       <CardHeader>
-        <CardTitle className="text-base">소비/생산 추이</CardTitle>
-        <CardDescription>최근 8일간 칩 소비 및 생산량</CardDescription>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <div className="p-2 rounded-lg bg-muted">
+              <Layers className="w-5 h-5 text-muted-foreground" />
+            </div>
+            <div>
+              <CardTitle className="text-base">적층 조합 패널티</CardTitle>
+              <CardDescription>낮을수록 추천 조합 (0.1 ~ 1.0)</CardDescription>
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <Badge variant="outline" className={cn("text-xs", riskBadgeClass("recommended"))}>
+              추천 {riskCounts.recommended}
+            </Badge>
+            <Badge variant="outline" className={cn("text-xs", riskBadgeClass("caution"))}>
+              주의 {riskCounts.caution}
+            </Badge>
+            <Badge variant="outline" className={cn("text-xs", riskBadgeClass("danger"))}>
+              위험 {riskCounts.danger}
+            </Badge>
+          </div>
+        </div>
       </CardHeader>
-      <CardContent>
-        <div className="h-[200px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={consumptionHistory}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-              <XAxis dataKey="date" stroke="#9ca3af" fontSize={12} />
-              <YAxis stroke="#9ca3af" fontSize={12} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "#1f2937",
-                  border: "1px solid #374151",
-                  borderRadius: "8px",
-                  color: "#f3f4f6",
-                }}
-              />
-              <Bar dataKey="production" name="생산" fill="#22c55e" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="consumption" name="소비" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+      <CardContent className="flex-1 min-h-0">
+        <div className="space-y-4 h-full min-h-0 flex flex-col">
+          {/* Legend */}
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">색상 기준</span>
+            <Badge variant="outline" className={cn("text-xs", riskBadgeClass("recommended"))}>
+              0.1 ~ 0.3 적극 추천
+            </Badge>
+            <Badge variant="outline" className={cn("text-xs", riskBadgeClass("caution"))}>
+              0.4 ~ 0.7 주의 필요
+            </Badge>
+            <Badge variant="outline" className={cn("text-xs", riskBadgeClass("danger"))}>
+              0.8 ~ 1.0 위험
+            </Badge>
+          </div>
+
+          <Tabs defaultValue="list" className="w-full flex-1 min-h-0 flex flex-col">
+            <div className="flex items-center justify-between gap-3">
+              <TabsList className="grid w-[220px] grid-cols-2">
+                <TabsTrigger value="list" className="gap-2">
+                  <Table2 className="w-4 h-4" />
+                  리스트
+                </TabsTrigger>
+                <TabsTrigger value="heatmap" className="gap-2">
+                  <Layers className="w-4 h-4" />
+                  히트맵
+                </TabsTrigger>
+              </TabsList>
+
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" onClick={() => setSortBy((v) => (v === "asc" ? "desc" : "asc"))}>
+                  {sortBy === "asc" ? "낮은값 우선" : "높은값 우선"}
+                </Button>
+              </div>
+            </div>
+
+            <TabsContent value="list" className="mt-4 flex-1 min-h-0 flex flex-col">
+              {/* Filters */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    placeholder="타입 검색 (예: Random Edge-Loc)"
+                    className="pl-9"
+                  />
+                </div>
+
+                <Select value={typeA} onValueChange={(v) => setTypeA(v as CanonicalFailureType | "all")}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="타입 A" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">타입 A: 전체</SelectItem>
+                    {allTypes.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {t}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Select value={typeB} onValueChange={(v) => setTypeB(v as CanonicalFailureType | "all")}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="타입 B" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">타입 B: 전체</SelectItem>
+                    {allTypes.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {t}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <ScrollArea className="flex-1 min-h-0 pr-3">
+                <div className="space-y-2">
+                  {rows.map((r) => {
+                    const risk = riskForPenalty(r.penalty)
+                    return (
+                      <div
+                        key={`${r.a}__${r.b}__${r.penalty}`}
+                        className={cn(
+                          "flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2",
+                          risk === "recommended" && "bg-emerald-500/5",
+                          risk === "caution" && "bg-amber-500/5",
+                          risk === "danger" && "bg-red-500/5"
+                        )}
+                      >
+                        <div className="min-w-0 flex items-center gap-2">
+                          <Badge variant="secondary" className="font-mono">
+                            {r.a}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">+</span>
+                          <Badge variant="secondary" className="font-mono">
+                            {r.b}
+                          </Badge>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className={cn("text-xs", riskBadgeClass(risk))}>
+                            {riskLabel(risk)}
+                          </Badge>
+                          <div className="text-sm font-semibold tabular-nums">{r.penalty.toFixed(2)}</div>
+                        </div>
+                      </div>
+                    )
+                  })}
+
+                  {rows.length === 0 && (
+                    <div className="text-center py-10 text-sm text-muted-foreground">조건에 맞는 조합이 없습니다.</div>
+                  )}
+                </div>
+              </ScrollArea>
+            </TabsContent>
+
+            <TabsContent value="heatmap" className="mt-4 flex-1 min-h-0">
+              <ScrollArea className="h-full min-h-0 pr-3">
+                <div className="overflow-x-auto">
+                  <div className="min-w-[520px]">
+                    <div
+                      className="grid"
+                      style={{ gridTemplateColumns: `120px repeat(${allTypes.length}, minmax(52px, 1fr))` }}
+                    >
+                      <div className="sticky left-0 bg-background z-10" />
+                      {allTypes.map((t) => (
+                        <div key={`col-${t}`} className="px-2 pb-2 text-xs text-muted-foreground font-mono text-center">
+                          {t}
+                        </div>
+                      ))}
+
+                      {allTypes.map((rowType) => (
+                        <div key={`rowblock-${rowType}`} className="contents">
+                          <div className="sticky left-0 bg-background z-10 pr-2 py-1 text-xs text-muted-foreground font-mono flex items-center">
+                            {rowType}
+                          </div>
+                          {allTypes.map((colType) => {
+                            const key = `${rowType}__${colType}`
+                            const p = penaltyMap.get(key)
+                            const risk = typeof p === "number" ? riskForPenalty(p) : null
+                            return (
+                              <div
+                                key={`cell-${key}`}
+                                title={
+                                  typeof p === "number"
+                                    ? `${rowType} + ${colType} = ${p.toFixed(2)}`
+                                    : `${rowType} + ${colType} = (데이터 없음)`
+                                }
+                                className={cn(
+                                  "m-0.5 rounded-md border border-border h-10 flex items-center justify-center text-xs font-semibold tabular-nums",
+                                  typeof p !== "number" && "bg-muted/30 text-muted-foreground",
+                                  risk === "recommended" &&
+                                    "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+                                  risk === "caution" &&
+                                    "bg-amber-500/12 text-amber-600 dark:text-amber-400 border-amber-500/20",
+                                  risk === "danger" && "bg-red-500/12 text-red-600 dark:text-red-400 border-red-500/20"
+                                )}
+                              >
+                                {typeof p === "number" ? p.toFixed(2) : "—"}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      * 셀은 스크린샷에 정의된 조합만 표시합니다. (없는 조합은 “—”)
+                    </div>
+                  </div>
+                </div>
+              </ScrollArea>
+            </TabsContent>
+          </Tabs>
         </div>
       </CardContent>
     </Card>
@@ -671,20 +948,18 @@ export default function InventoryPage() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* AI Quality */}
-        <div className="lg:col-span-2">
-          <AIQualityPanel
-            qualitySummary={qualitySummary}
-            failureTypeDistribution={failureTypeDistribution}
-            isLoading={qualityLoading}
-            error={qualityError}
-            onReanalyze={() => void loadQualityData()}
-          />
-        </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+        {/* AI Quality (왼쪽) */}
+        <AIQualityPanel
+          qualitySummary={qualitySummary}
+          failureTypeDistribution={failureTypeDistribution}
+          isLoading={qualityLoading}
+          error={qualityError}
+          onReanalyze={() => void loadQualityData()}
+        />
 
-        {/* Consumption Chart */}
-        <ConsumptionChart />
+        {/* Base-type penalty (오른쪽) */}
+        <BaseTypePenaltyPanel />
       </div>
 
       {/* Inventory List */}
