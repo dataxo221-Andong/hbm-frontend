@@ -1,17 +1,15 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { Progress } from "@/components/ui/progress"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { 
-  Search, 
-  Package, 
-  TrendingUp, 
+import {
+  Search,
+  Package,
+  TrendingUp,
   TrendingDown,
   AlertTriangle,
   CheckCircle2,
@@ -20,26 +18,22 @@ import {
   ArrowRight,
   Clock,
   Boxes,
-  Layers,
-  Cpu,
-  Sparkles
+  Sparkles,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { fetchChipInspectionRows, type ChipInspectionRow } from "@/lib/api/chip-inspection"
 import {
-  LineChart,
-  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Area,
-  AreaChart,
   BarChart,
-  Bar
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
 } from "recharts"
-import { useSearchParams } from "next/navigation"
-import Loading from "./loading"
 
 // Chip inventory types
 type ChipCategory = "raw_die" | "dram_die" | "logic_die" | "hbm_stack" | "finished"
@@ -78,7 +72,7 @@ const inventoryData: InventoryItem[] = [
     lastUpdated: "2024-01-21T10:30:00",
     trend: "up",
     trendValue: 5.2,
-    daysToReorder: null
+    daysToReorder: null,
   },
   {
     id: "2",
@@ -94,7 +88,7 @@ const inventoryData: InventoryItem[] = [
     lastUpdated: "2024-01-21T10:30:00",
     trend: "down",
     trendValue: -3.1,
-    daysToReorder: 5
+    daysToReorder: 5,
   },
   {
     id: "3",
@@ -110,7 +104,7 @@ const inventoryData: InventoryItem[] = [
     lastUpdated: "2024-01-21T10:30:00",
     trend: "down",
     trendValue: -8.5,
-    daysToReorder: 3
+    daysToReorder: 3,
   },
   {
     id: "5",
@@ -126,7 +120,7 @@ const inventoryData: InventoryItem[] = [
     lastUpdated: "2024-01-21T10:30:00",
     trend: "up",
     trendValue: 2.8,
-    daysToReorder: null
+    daysToReorder: null,
   },
   {
     id: "6",
@@ -142,20 +136,8 @@ const inventoryData: InventoryItem[] = [
     lastUpdated: "2024-01-21T10:30:00",
     trend: "stable",
     trendValue: 0.5,
-    daysToReorder: null
+    daysToReorder: null,
   },
-]
-
-// AI Prediction data
-const predictionData = [
-  { day: "오늘", actual: 2340, predicted: 2340 },
-  { day: "+1일", actual: null, predicted: 2180 },
-  { day: "+2일", actual: null, predicted: 2020 },
-  { day: "+3일", actual: null, predicted: 1850 },
-  { day: "+4일", actual: null, predicted: 1700 },
-  { day: "+5일", actual: null, predicted: 1580 },
-  { day: "+6일", actual: null, predicted: 1490 },
-  { day: "+7일", actual: null, predicted: 1420 },
 ]
 
 const consumptionHistory = [
@@ -169,19 +151,85 @@ const consumptionHistory = [
   { date: "01/21", consumption: 190, production: 205 },
 ]
 
-const categoryLabels: Record<ChipCategory, string> = {
-  raw_die: "원자재",
-  dram_die: "DRAM Die",
-  logic_die: "Logic Die",
-  hbm_stack: "HBM 스택",
-  finished: "완제품"
+// Demo quality/defect summary (노션: 정상/불량 + 불량유형 기반)
+const DEFAULT_QUALITY_SUMMARY = {
+  total: 1000,
+  normal: 872,
+  defect: 128,
+} as const
+
+function isDefectStatus(status: ChipInspectionRow["die_status"]): boolean {
+  // DB 스크린샷 기준: die_status = 1/2 형태로 보임
+  if (status === 1 || status === "1" || status === false || status === "good" || status === "normal") return false
+  if (
+    status === 2 ||
+    status === "2" ||
+    status === 0 ||
+    status === "0" ||
+    status === true ||
+    status === "bad" ||
+    status === "defect"
+  )
+    return true
+  return Boolean(status) // fallback
+}
+
+function colorForFailureType(type: string): string {
+  const palette = ["#f59e0b", "#fb7185", "#a78bfa", "#60a5fa", "#34d399", "#94a3b8"]
+  let hash = 0
+  for (let i = 0; i < type.length; i++) hash = (hash * 31 + type.charCodeAt(i)) >>> 0
+  return palette[hash % palette.length]
+}
+
+// 요구사항: 아래 9개 패턴만 화면에 표시 (그 외는 표시하지 않음)
+const CANONICAL_FAILURE_TYPES = [
+  "Scratch",
+  "Random",
+  "Near-full",
+  "Loc",
+  "Edge-Ring",
+  "Edge-Loc",
+  "Donut",
+  "Center",
+  "None",
+] as const
+
+type CanonicalFailureType = (typeof CANONICAL_FAILURE_TYPES)[number]
+
+function normalizeFailureType(raw: unknown): CanonicalFailureType | null {
+  // DB에서 failure_type이 NULL/None일 수 있음
+  if (raw === null || raw === undefined) return "None"
+  const s = typeof raw === "string" ? raw.trim() : String(raw).trim()
+  if (!s) return "None"
+
+  const cleaned = s.replace(/_/g, "-").replace(/\s+/g, "-")
+  const key = cleaned.toLowerCase()
+
+  const map: Record<string, CanonicalFailureType> = {
+    scratch: "Scratch",
+    random: "Random",
+    "near-full": "Near-full",
+    nearfull: "Near-full",
+    loc: "Loc",
+    "edge-ring": "Edge-Ring",
+    edgering: "Edge-Ring",
+    "edge-loc": "Edge-Loc",
+    edgeloc: "Edge-Loc",
+    donut: "Donut",
+    center: "Center",
+    none: "None",
+    null: "None",
+  }
+
+  // NOTE: Edge/Other/Particle 등은 요구사항에 없으므로 null 처리(표시 X)
+  return map[key] ?? null
 }
 
 const statusConfig: Record<StockStatus, { label: string; color: string; bgColor: string }> = {
   optimal: { label: "적정", color: "text-success", bgColor: "bg-success/10" },
   low: { label: "부족", color: "text-warning", bgColor: "bg-warning/10" },
   critical: { label: "긴급", color: "text-destructive", bgColor: "bg-destructive/10" },
-  excess: { label: "과잉", color: "text-primary", bgColor: "bg-primary/10" }
+  excess: { label: "과잉", color: "text-primary", bgColor: "bg-primary/10" },
 }
 
 function StockLevelBar({ item }: { item: InventoryItem }) {
@@ -192,7 +240,7 @@ function StockLevelBar({ item }: { item: InventoryItem }) {
   return (
     <div className="relative h-3 bg-muted rounded-full overflow-hidden">
       {/* Current stock level */}
-      <div 
+      <div
         className={cn(
           "absolute h-full rounded-full transition-all",
           item.status === "optimal" && "bg-success",
@@ -203,15 +251,9 @@ function StockLevelBar({ item }: { item: InventoryItem }) {
         style={{ width: `${Math.min(percentage, 100)}%` }}
       />
       {/* Min stock indicator */}
-      <div 
-        className="absolute top-0 bottom-0 w-0.5 bg-destructive/50"
-        style={{ left: `${minPercentage}%` }}
-      />
+      <div className="absolute top-0 bottom-0 w-0.5 bg-destructive/50" style={{ left: `${minPercentage}%` }} />
       {/* Optimal stock indicator */}
-      <div 
-        className="absolute top-0 bottom-0 w-0.5 bg-foreground/30"
-        style={{ left: `${optimalPercentage}%` }}
-      />
+      <div className="absolute top-0 bottom-0 w-0.5 bg-foreground/30" style={{ left: `${optimalPercentage}%` }} />
     </div>
   )
 }
@@ -220,10 +262,7 @@ function InventoryCard({ item }: { item: InventoryItem }) {
   const config = statusConfig[item.status]
 
   return (
-    <Card className={cn(
-      "transition-all hover:border-primary/50",
-      item.status === "critical" && "border-destructive/50"
-    )}>
+    <Card className={cn("transition-all hover:border-primary/50", item.status === "critical" && "border-destructive/50")}>
       <CardContent className="p-4">
         <div className="flex items-start justify-between mb-3">
           <div>
@@ -238,9 +277,7 @@ function InventoryCard({ item }: { item: InventoryItem }) {
         <div className="space-y-3">
           <div>
             <div className="flex items-baseline justify-between mb-1">
-              <span className="text-2xl font-bold text-foreground">
-                {item.currentStock.toLocaleString()}
-              </span>
+              <span className="text-2xl font-bold text-foreground">{item.currentStock.toLocaleString()}</span>
               <span className="text-sm text-muted-foreground">{item.unit}</span>
             </div>
             <StockLevelBar item={item} />
@@ -251,17 +288,29 @@ function InventoryCard({ item }: { item: InventoryItem }) {
           </div>
 
           <div className="flex items-center justify-between pt-2 border-t border-border">
-            <div className={cn(
-              "flex items-center gap-1 text-sm",
-              item.trend === "up" ? "text-success" : 
-              item.trend === "down" ? "text-destructive" : "text-muted-foreground"
-            )}>
-              {item.trend === "up" ? <TrendingUp className="w-4 h-4" /> :
-               item.trend === "down" ? <TrendingDown className="w-4 h-4" /> :
-               <ArrowRight className="w-4 h-4" />}
-              <span>{item.trendValue > 0 ? "+" : ""}{item.trendValue}%</span>
+            <div
+              className={cn(
+                "flex items-center gap-1 text-sm",
+                item.trend === "up"
+                  ? "text-success"
+                  : item.trend === "down"
+                    ? "text-destructive"
+                    : "text-muted-foreground"
+              )}
+            >
+              {item.trend === "up" ? (
+                <TrendingUp className="w-4 h-4" />
+              ) : item.trend === "down" ? (
+                <TrendingDown className="w-4 h-4" />
+              ) : (
+                <ArrowRight className="w-4 h-4" />
+              )}
+              <span>
+                {item.trendValue > 0 ? "+" : ""}
+                {item.trendValue}%
+              </span>
             </div>
-            
+
             {item.daysToReorder !== null && (
               <div className="flex items-center gap-1 text-sm text-warning">
                 <Clock className="w-4 h-4" />
@@ -275,14 +324,27 @@ function InventoryCard({ item }: { item: InventoryItem }) {
   )
 }
 
-function AIPredictionPanel() {
-  const [isAnalyzing, setIsAnalyzing] = useState(false)
-
-  const runAnalysis = async () => {
-    setIsAnalyzing(true)
-    await new Promise(resolve => setTimeout(resolve, 2000))
-    setIsAnalyzing(false)
-  }
+function AIQualityPanel({
+  qualitySummary,
+  failureTypeDistribution,
+  isLoading,
+  error,
+  onReanalyze,
+}: {
+  qualitySummary: { total: number; normal: number; defect: number }
+  failureTypeDistribution: Array<{ type: string; count: number; color: string }>
+  isLoading: boolean
+  error: string | null
+  onReanalyze: () => void
+}) {
+  const defectRate = Math.round((qualitySummary.defect / qualitySummary.total) * 1000) / 10
+  const topFailure =
+    failureTypeDistribution.length > 0
+      ? failureTypeDistribution.reduce(
+          (best, cur) => (cur.count > best.count ? cur : best),
+          failureTypeDistribution[0]
+        )
+      : null
 
   return (
     <Card>
@@ -293,74 +355,104 @@ function AIPredictionPanel() {
               <Brain className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <CardTitle className="text-base">AI 재고 예측</CardTitle>
-              <CardDescription>머신러닝 기반 수요 예측</CardDescription>
+              <CardTitle className="text-base">AI 재고 분석</CardTitle>
+              <CardDescription>정상/불량 및 불량유형 기반 현황 분석</CardDescription>
             </div>
           </div>
-          <Button size="sm" onClick={runAnalysis} disabled={isAnalyzing}>
-            {isAnalyzing ? (
-              <>
-                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+          <div className="flex items-center gap-2">
+            {isLoading && (
+              <Badge variant="outline" className="text-xs">
                 분석 중...
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4 mr-2" />
-                재분석
-              </>
+              </Badge>
             )}
-          </Button>
+            <Button size="sm" onClick={onReanalyze} disabled={isLoading}>
+              {isLoading ? (
+                <>
+                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  분석 중...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  재분석
+                </>
+              )}
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
-          {/* Prediction Chart */}
-          <div className="h-[200px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={predictionData}>
-                <defs>
-                  <linearGradient id="predictedGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4}/>
-                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.1}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis 
-                  dataKey="day" 
-                  stroke="#9ca3af"
-                  fontSize={12}
-                />
-                <YAxis 
-                  stroke="#9ca3af"
-                  fontSize={12}
-                />
-                <Tooltip 
-                  contentStyle={{
-                    backgroundColor: "#1f2937",
-                    border: "1px solid #374151",
-                    borderRadius: "8px",
-                    color: "#f3f4f6"
-                  }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="predicted"
-                  stroke="#3b82f6"
-                  strokeWidth={3}
-                  fill="url(#predictedGradient)"
-                  strokeDasharray="5 5"
-                  name="예측 재고"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="actual"
-                  stroke="#22c55e"
-                  strokeWidth={3}
-                  dot={{ fill: "#22c55e", r: 5 }}
-                  name="실제 재고"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+          {error && (
+            <div className="text-xs text-muted-foreground">
+              <Badge variant="outline" className="mr-2">
+                API
+              </Badge>
+              {error} (데모 데이터로 표시 중)
+            </div>
+          )}
+
+          {/* Quality Chart (노션: 현재 재고상황 + 불량유형) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="h-[200px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#1f2937",
+                      border: "1px solid #374151",
+                      borderRadius: "8px",
+                      color: "#f3f4f6",
+                    }}
+                  />
+                  <Pie
+                    data={[
+                      { name: "정상", value: qualitySummary.normal, color: "#22c55e" },
+                      { name: "불량", value: qualitySummary.defect, color: "#ef4444" },
+                    ]}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={55}
+                    outerRadius={80}
+                    paddingAngle={2}
+                  >
+                    <Cell fill="#22c55e" />
+                    <Cell fill="#ef4444" />
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="h-[200px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={failureTypeDistribution} margin={{ left: 8, right: 8, bottom: 26 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                  <XAxis
+                    dataKey="type"
+                    stroke="#9ca3af"
+                    fontSize={11}
+                    interval={0}
+                    angle={-18}
+                    textAnchor="end"
+                    height={44}
+                  />
+                  <YAxis stroke="#9ca3af" fontSize={12} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#1f2937",
+                      border: "1px solid #374151",
+                      borderRadius: "8px",
+                      color: "#f3f4f6",
+                    }}
+                  />
+                  <Bar dataKey="count" name="패턴 수" radius={[4, 4, 0, 0]}>
+                    {failureTypeDistribution.map((entry) => (
+                      <Cell key={entry.type} fill={entry.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
 
           {/* AI Insights */}
@@ -370,18 +462,24 @@ function AIPredictionPanel() {
               AI 인사이트
             </h4>
             <div className="space-y-2 text-sm">
-              <div className="flex items-start gap-2 p-2 rounded-lg bg-warning/10">
-                <Clock className="w-4 h-4 text-warning mt-0.5" />
+              <div className="flex items-start gap-2 p-2 rounded-lg bg-destructive/10">
+                <AlertTriangle className="w-4 h-4 text-destructive mt-0.5" />
                 <div>
-                  <span className="text-foreground font-medium">Logic Die</span>
-                  <span className="text-muted-foreground"> - 5일 내 최소 재고 도달 예상. 발주 준비 필요.</span>
+                  <span className="text-foreground font-medium">불량률</span>
+                  <span className="text-muted-foreground">
+                    {" "}- 현재 불량률 {Number.isFinite(defectRate) ? defectRate : 0}%
+                    {topFailure ? ` (상위 불량유형: ${topFailure.type})` : ""}.
+                  </span>
                 </div>
               </div>
               <div className="flex items-start gap-2 p-2 rounded-lg bg-success/10">
                 <CheckCircle2 className="w-4 h-4 text-success mt-0.5" />
                 <div>
-                  <span className="text-foreground font-medium">DRAM Die</span>
-                  <span className="text-muted-foreground"> - 현재 재고 수준 적정. 2주 이상 운영 가능.</span>
+                  <span className="text-foreground font-medium">정상 수량</span>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    - 정상 {qualitySummary.normal.toLocaleString()}개 / 총 {qualitySummary.total.toLocaleString()}개.
+                  </span>
                 </div>
               </div>
             </div>
@@ -404,21 +502,14 @@ function ConsumptionChart() {
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={consumptionHistory}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-              <XAxis 
-                dataKey="date" 
-                stroke="#9ca3af"
-                fontSize={12}
-              />
-              <YAxis 
-                stroke="#9ca3af"
-                fontSize={12}
-              />
-              <Tooltip 
+              <XAxis dataKey="date" stroke="#9ca3af" fontSize={12} />
+              <YAxis stroke="#9ca3af" fontSize={12} />
+              <Tooltip
                 contentStyle={{
                   backgroundColor: "#1f2937",
                   border: "1px solid #374151",
                   borderRadius: "8px",
-                  color: "#f3f4f6"
+                  color: "#f3f4f6",
                 }}
               />
               <Bar dataKey="production" name="생산" fill="#22c55e" radius={[4, 4, 0, 0]} />
@@ -432,27 +523,94 @@ function ConsumptionChart() {
 }
 
 export default function InventoryPage() {
-  const searchParams = useSearchParams()
   const [searchTerm, setSearchTerm] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
 
+  const [qualitySummary, setQualitySummary] = useState<{ total: number; normal: number; defect: number }>({
+    total: DEFAULT_QUALITY_SUMMARY.total,
+    normal: DEFAULT_QUALITY_SUMMARY.normal,
+    defect: DEFAULT_QUALITY_SUMMARY.defect,
+  })
+  // 초기에도 요구된 9개만 노출(로딩 중에 Edge/Other 같은 게 잠깐 보이는 현상 방지)
+  const [failureTypeDistribution, setFailureTypeDistribution] = useState<
+    Array<{ type: string; count: number; color: string }>
+  >(CANONICAL_FAILURE_TYPES.map((t) => ({ type: t, count: 0, color: colorForFailureType(t) })))
+  const [qualityLoading, setQualityLoading] = useState(false)
+  const [qualityError, setQualityError] = useState<string | null>(null)
+
   const filteredInventory = useMemo(() => {
-    return inventoryData.filter(item => {
-      const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           item.sku.toLowerCase().includes(searchTerm.toLowerCase())
+    return inventoryData.filter((item) => {
+      const matchesSearch =
+        item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        item.sku.toLowerCase().includes(searchTerm.toLowerCase())
       const matchesCategory = categoryFilter === "all" || item.category === categoryFilter
       const matchesStatus = statusFilter === "all" || item.status === statusFilter
       return matchesSearch && matchesCategory && matchesStatus
     })
   }, [searchTerm, categoryFilter, statusFilter])
 
-  const stats = useMemo(() => {
-    const critical = inventoryData.filter(i => i.status === "critical").length
-    const low = inventoryData.filter(i => i.status === "low").length
-    const optimal = inventoryData.filter(i => i.status === "optimal").length
-    const totalItems = inventoryData.length
-    return { critical, low, optimal, totalItems }
+  const qualityStats = useMemo(() => {
+    const defectRate = Math.round((qualitySummary.defect / qualitySummary.total) * 1000) / 10
+    return {
+      total: qualitySummary.total,
+      normal: qualitySummary.normal,
+      defect: qualitySummary.defect,
+      defectRate,
+    }
+  }, [qualitySummary])
+
+  const loadQualityData = async (signal?: AbortSignal) => {
+    try {
+      setQualityLoading(true)
+      setQualityError(null)
+
+      const rows = await fetchChipInspectionRows({ limit: 1000 })
+      if (signal?.aborted) return
+
+      const total = rows.length
+      const defectRows = rows.filter((r) => isDefectStatus(r.die_status))
+      const defect = defectRows.length
+      const normal = total - defect
+
+      // 불량패턴 분포: 요구된 9개만 집계/표시 (없으면 0)
+      // NOTE: failure_type은 정상 다이에도 들어올 수 있어, 전체 row 기준으로 카운트
+      const counts = new Map<CanonicalFailureType, number>()
+      for (const r of rows) {
+        const t = normalizeFailureType(r.failure_type)
+        if (!t) continue // 요구된 9개 외는 무시 (표시하지 않음)
+        counts.set(t, (counts.get(t) ?? 0) + 1)
+      }
+
+      const dist: Array<{ type: string; count: number; color: string }> = CANONICAL_FAILURE_TYPES.map((t) => ({
+        type: t,
+        count: counts.get(t) ?? 0,
+        color: colorForFailureType(t),
+      }))
+
+      setQualitySummary({ total, normal, defect })
+      setFailureTypeDistribution(dist)
+    } catch (e) {
+      if (signal?.aborted) return
+      const message = e instanceof Error ? e.message : "칩 검사 데이터 로드 실패"
+      setQualityError(message)
+      // fallback to demo
+      setQualitySummary({
+        total: DEFAULT_QUALITY_SUMMARY.total,
+        normal: DEFAULT_QUALITY_SUMMARY.normal,
+        defect: DEFAULT_QUALITY_SUMMARY.defect,
+      })
+      // 요구사항: 이 화면도 9개만 보여야 함
+      setFailureTypeDistribution(CANONICAL_FAILURE_TYPES.map((t) => ({ type: t, count: 0, color: colorForFailureType(t) })))
+    } finally {
+      if (!signal?.aborted) setQualityLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void loadQualityData(controller.signal)
+    return () => controller.abort()
   }, [])
 
   return (
@@ -466,8 +624,8 @@ export default function InventoryPage() {
                 <Boxes className="w-5 h-5 text-muted-foreground" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">전체 품목</p>
-                <p className="text-2xl font-bold text-foreground">{stats.totalItems}</p>
+                <p className="text-sm text-muted-foreground">전체 수량</p>
+                <p className="text-2xl font-bold text-foreground">{qualityStats.total.toLocaleString()}</p>
               </div>
             </div>
           </CardContent>
@@ -479,21 +637,8 @@ export default function InventoryPage() {
                 <CheckCircle2 className="w-5 h-5 text-success" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">적정 재고</p>
-                <p className="text-2xl font-bold text-success">{stats.optimal}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-warning/10">
-                <AlertTriangle className="w-5 h-5 text-warning" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">부족 경고</p>
-                <p className="text-2xl font-bold text-warning">{stats.low}</p>
+                <p className="text-sm text-muted-foreground">정상 수량</p>
+                <p className="text-2xl font-bold text-success">{qualityStats.normal.toLocaleString()}</p>
               </div>
             </div>
           </CardContent>
@@ -505,8 +650,21 @@ export default function InventoryPage() {
                 <AlertTriangle className="w-5 h-5 text-destructive" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">긴급 발주</p>
-                <p className="text-2xl font-bold text-destructive">{stats.critical}</p>
+                <p className="text-sm text-muted-foreground">불량 수량</p>
+                <p className="text-2xl font-bold text-destructive">{qualityStats.defect.toLocaleString()}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-warning/10">
+                <Brain className="w-5 h-5 text-warning" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">불량률</p>
+                <p className="text-2xl font-bold text-warning">{qualityStats.defectRate}%</p>
               </div>
             </div>
           </CardContent>
@@ -514,11 +672,17 @@ export default function InventoryPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* AI Prediction */}
+        {/* AI Quality */}
         <div className="lg:col-span-2">
-          <AIPredictionPanel />
+          <AIQualityPanel
+            qualitySummary={qualitySummary}
+            failureTypeDistribution={failureTypeDistribution}
+            isLoading={qualityLoading}
+            error={qualityError}
+            onReanalyze={() => void loadQualityData()}
+          />
         </div>
-        
+
         {/* Consumption Chart */}
         <ConsumptionChart />
       </div>
