@@ -19,7 +19,7 @@ function generateWaferMap(size: number = 20): Die[] {
       // Generate random status with realistic distribution
       const rand = Math.random()
       let status: DieStatus
-      
+
       const badProbability = 0.04
 
       if (rand < badProbability) {
@@ -53,39 +53,43 @@ interface WaferMapStats {
   total: number
 }
 
-export const WaferMapVisualization = memo(function WaferMapVisualization({ 
+export const WaferMapVisualization = memo(function WaferMapVisualization({
   onStatsChange,
-  waferStats
-}: { 
+  waferStats,
+  imageUrl
+}: {
   onStatsChange?: (stats: WaferMapStats) => void
   waferStats?: { good: number; bad: number; total: number }
+  imageUrl?: string
 }) {
   const [dies, setDies] = useState<Die[]>([])
   const gridSize = 34 // 원형 테두리 크기
   const dieGridSize = 32 // 실제 다이 그리드 크기
   const dieOffset = (gridSize - dieGridSize) / 2 // 다이를 중앙에 배치하기 위한 오프셋 (1)
 
-  // 웨이퍼 통계 데이터를 기반으로 맵 생성
+  // 웨이퍼 통계 데이터를 기반으로 맵 생성 (이미지가 없을 때만 실행)
   useEffect(() => {
+    if (imageUrl) return // 이미지가 있으면 랜덤 생성 안 함
+
     if (waferStats && waferStats.total > 0) {
       // 실제 통계에 맞춰 다이 생성
       const totalCells = dieGridSize * dieGridSize
       const goodCount = waferStats.good
       const badCount = waferStats.bad
       const emptyCount = totalCells - goodCount - badCount
-      
+
       // 상태 배열 생성
       const statusArray: DieStatus[] = []
       for (let i = 0; i < goodCount; i++) statusArray.push("good")
       for (let i = 0; i < badCount; i++) statusArray.push("bad")
       for (let i = 0; i < emptyCount; i++) statusArray.push("empty")
-      
+
       // 배열 섞기 (랜덤 배치)
       for (let i = statusArray.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [statusArray[i], statusArray[j]] = [statusArray[j], statusArray[i]]
       }
-      
+
       // 다이 배열 생성
       const generatedDies: Die[] = []
       let statusIndex = 0
@@ -96,7 +100,7 @@ export const WaferMapVisualization = memo(function WaferMapVisualization({
           statusIndex++
         }
       }
-      
+
       const offsetDies = generatedDies.map(die => ({
         ...die,
         x: die.x + dieOffset,
@@ -113,8 +117,8 @@ export const WaferMapVisualization = memo(function WaferMapVisualization({
       }))
       setDies(offsetDies)
     }
-  }, [dieOffset, waferStats])
-  
+  }, [dieOffset, waferStats, imageUrl])
+
   const centerX = gridSize / 2 - 0.5
   const centerY = gridSize / 2 - 0.5
   const radius = gridSize / 2 - 0.5
@@ -149,11 +153,16 @@ export const WaferMapVisualization = memo(function WaferMapVisualization({
 
   // 32×32 다이 영역 내부인지 확인하는 함수
   const isInsideDieArea = useCallback((x: number, y: number): boolean => {
-    return x >= dieOffset && x < dieOffset + dieGridSize && 
-           y >= dieOffset && y < dieOffset + dieGridSize
+    return x >= dieOffset && x < dieOffset + dieGridSize &&
+      y >= dieOffset && y < dieOffset + dieGridSize
   }, [dieOffset, dieGridSize])
 
   const stats = useMemo(() => {
+    // 이미지가 있으면 waferStats를 그대로 사용
+    if (imageUrl && waferStats) {
+      return { good: waferStats.good, bad: waferStats.bad }
+    }
+
     const counts = { good: 0, bad: 0 }
     dies.forEach(die => {
       const key = `${die.x}-${die.y}`
@@ -163,24 +172,24 @@ export const WaferMapVisualization = memo(function WaferMapVisualization({
       }
     })
     return counts
-  }, [dies, insideCircleMap, isInsideDieArea])
+  }, [dies, insideCircleMap, isInsideDieArea, imageUrl, waferStats])
 
   const total = stats.good + stats.bad
   const confidencePercent = total > 0 ? ((stats.good / total) * 100).toFixed(1) : "0.0"
 
   // stats가 변경될 때마다 부모 컴포넌트에 알림
   useEffect(() => {
-    if (onStatsChange && dies.length > 0) {
+    if (onStatsChange && dies.length > 0 && !imageUrl) {
       onStatsChange({
         good: stats.good,
         bad: stats.bad,
         total: total
       })
     }
-  }, [stats, total, dies.length, onStatsChange])
+  }, [stats, total, dies.length, onStatsChange, imageUrl])
 
   // 클라이언트에서 데이터가 로드될 때까지 빈 상태 표시
-  if (dies.length === 0) {
+  if (dies.length === 0 && !imageUrl) {
     return (
       <div className="space-y-4">
         <div className="relative aspect-square max-w-md mx-auto">
@@ -196,61 +205,81 @@ export const WaferMapVisualization = memo(function WaferMapVisualization({
     <div className="space-y-4">
       {/* Chip Map Grid - 원형 웨이퍼 */}
       <div className="relative aspect-square max-w-md mx-auto">
-        {/* 원형 마스크 배경 (가장 아래 레이어) */}
-        <div 
-          className="absolute inset-0 rounded-full border-2 border-border bg-muted/20"
-          style={{ 
-            clipPath: 'circle(50%)'
-          }}
-        />
-        
-        {/* 다이 그리드 + 경계선 통합 (렌더링 최적화) */}
-        <div 
-          className="absolute inset-0 grid gap-px p-1 overflow-hidden"
-          style={{ 
-            gridTemplateColumns: `repeat(${gridSize}, 1fr)`,
-            gridTemplateRows: `repeat(${gridSize}, 1fr)`,
-            clipPath: 'circle(50%)'
-          }}
-        >
-          {Array.from({ length: gridSize * gridSize }).map((_, index) => {
-            const x = index % gridSize
-            const y = Math.floor(index / gridSize)
-            const key = `${x}-${y}`
-            const die = dieMap.get(key)
-            const insideCircle = insideCircleMap.get(key) ?? false
-            const insideDieArea = isInsideDieArea(x, y)
-            
-            // 원형 웨이퍼 밖의 칩은 표시하지 않음
-            if (!insideCircle) {
-              return <div key={index} className="w-full h-full" />
-            }
-            
-            // 32×32 다이 영역 밖이면 빈 칸으로 표시
-            if (!insideDieArea) {
-              return <div key={index} className="w-full h-full border border-border/30" />
-            }
-            
-            if (!die) {
-              return <div key={index} className="w-full h-full border border-border/30" />
-            }
-
-            // 다이 좌표를 1,1부터 시작하도록 표시
-            const displayX = (x - dieOffset) + 1
-            const displayY = (y - dieOffset) + 1
-
-            return (
-              <div
-                key={index}
-                className={cn(
-                  "w-full h-full rounded-[1px] transition-colors cursor-pointer border border-border/30",
-                  statusColors[die.status]
-                )}
-                title={`(${displayX}, ${displayY}): ${statusLabels[die.status]}`}
+        {imageUrl ? (
+          <div className="w-full h-full rounded-full border-2 border-border bg-black overflow-hidden relative">
+            {/* 실제 웨이퍼 이미지 표시 */}
+            <div className="absolute inset-0 flex items-center justify-center bg-muted/10">
+              <img
+                src={imageUrl}
+                alt="Wafer Map Analysis Result"
+                className="w-full h-full object-contain"
+                style={{ imageRendering: 'pixelated' }}
               />
-            )
-          })}
-        </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* 원형 마스크 배경 (가장 아래 레이어) */}
+            <div
+              className="absolute inset-0 rounded-full border-2 border-border bg-muted/20"
+              style={{
+                clipPath: 'circle(50%)'
+              }}
+            />
+
+            {/* 다이 그리드 + 경계선 통합 (렌더링 최적화) */}
+            <div
+              className="absolute inset-0 grid gap-px p-1 overflow-hidden"
+              style={{
+                gridTemplateColumns: `repeat(${gridSize}, 1fr)`,
+                gridTemplateRows: `repeat(${gridSize}, 1fr)`,
+                clipPath: 'circle(50%)'
+              }}
+            >
+              {Array.from({ length: gridSize * gridSize }).map((_, index) => {
+                const x = index % gridSize
+                const y = Math.floor(index / gridSize)
+                const key = `${x}-${y}`
+                const die = dieMap.get(key)
+                const insideCircle = insideCircleMap.get(key) ?? false
+                const insideDieArea = isInsideDieArea(x, y)
+
+                // 원형 웨이퍼 밖의 칩은 표시하지 않음
+                if (!insideCircle) {
+                  return <div key={index} className="w-full h-full" />
+                }
+
+                // 32×32 다이 영역 밖이면 빈 칸으로 표시
+                if (!insideDieArea) {
+                  return <div key={index} className="w-full h-full border border-border/30" />
+                }
+
+                if (!die) {
+                  return <div key={index} className="w-full h-full border border-border/30" />
+                }
+
+                // 다이 좌표를 1,1부터 시작하도록 표시
+                const displayX = (x - dieOffset) + 1
+                const displayY = (y - dieOffset) + 1
+
+                return (
+                  <div
+                    key={index}
+                    className={cn(
+                      "w-full h-full rounded-[1px] transition-colors cursor-pointer border border-border/30",
+                      statusColors[die.status]
+                    )}
+                    title={`(${displayX}, ${displayY}): ${statusLabels[die.status]}`}
+                  />
+                )
+              })}
+            </div>
+            {/* 랜덤 생성 안내 메시지 */}
+            <div className="absolute -bottom-6 w-full text-center">
+              <span className="text-[10px] text-muted-foreground/70">* 칩 분포 시각화는 시뮬레이션입니다 (실제 좌표 미연동)</span>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Confidence Info */}
@@ -263,10 +292,10 @@ export const WaferMapVisualization = memo(function WaferMapVisualization({
 })
 
 // Compact version for use in lists
-export const WaferMapMini = memo(function WaferMapMini({ 
+export const WaferMapMini = memo(function WaferMapMini({
   className,
   waferStats
-}: { 
+}: {
   className?: string
   waferStats?: { good: number; bad: number; total: number }
 }) {
@@ -281,19 +310,19 @@ export const WaferMapMini = memo(function WaferMapMini({
       const goodCount = waferStats.good
       const badCount = waferStats.bad
       const emptyCount = totalCells - goodCount - badCount
-      
+
       // 상태 배열 생성
       const statusArray: DieStatus[] = []
       for (let i = 0; i < goodCount; i++) statusArray.push("good")
       for (let i = 0; i < badCount; i++) statusArray.push("bad")
       for (let i = 0; i < emptyCount; i++) statusArray.push("empty")
-      
+
       // 배열 섞기 (랜덤 배치)
       for (let i = statusArray.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [statusArray[i], statusArray[j]] = [statusArray[j], statusArray[i]]
       }
-      
+
       // 다이 배열 생성
       const generatedDies: Die[] = []
       let statusIndex = 0
@@ -304,14 +333,14 @@ export const WaferMapMini = memo(function WaferMapMini({
           statusIndex++
         }
       }
-      
+
       setDies(generatedDies)
     } else {
       // 통계 데이터가 없으면 랜덤 생성 (기본 동작)
       setDies(generateWaferMap(32))
     }
   }, [waferStats])
-  
+
   const centerX = gridSize / 2 - 0.5
   const centerY = gridSize / 2 - 0.5
   const radius = gridSize / 2 - 0.5
@@ -355,9 +384,9 @@ export const WaferMapMini = memo(function WaferMapMini({
 
   return (
     <div className={cn("relative aspect-square", className)}>
-      <div 
+      <div
         className="absolute inset-0 grid gap-px rounded-full border-2 border-border bg-muted/20 p-0.5 overflow-hidden"
-        style={{ 
+        style={{
           gridTemplateColumns: `repeat(${gridSize}, 1fr)`,
           gridTemplateRows: `repeat(${gridSize}, 1fr)`,
           clipPath: 'circle(50%)'
@@ -369,12 +398,12 @@ export const WaferMapMini = memo(function WaferMapMini({
           const key = `${x}-${y}`
           const die = dieMap.get(key)
           const insideCircle = insideCircleMap.get(key) ?? false
-          
+
           // 원형 웨이퍼 밖의 칩은 표시하지 않음
           if (!insideCircle) {
             return <div key={index} className="w-full h-full" />
           }
-          
+
           if (!die) return <div key={index} className="w-full h-full" />
 
           return (

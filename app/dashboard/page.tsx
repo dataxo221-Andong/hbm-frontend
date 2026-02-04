@@ -59,6 +59,7 @@ interface WaferData {
   waferMapData?: { good: number; bad: number; total: number }
   defects?: Array<{ type: string; count: number; percent: number }>
   defectDensity?: number // Explicit field for list view
+  imageUrl?: string // 웨이퍼 맵 이미지 URL (Firebase)
 }
 
 // Demo wafer data
@@ -545,19 +546,15 @@ const ClassificationStats = memo(function ClassificationStats({ stats }: { stats
   )
 })
 
-// Analysis result type
 interface AnalysisResult {
   waferId: string
   yield: number
   grade: string
   goodDie: number
   badDie: number
-  defects: {
-    type: string
-    count: number
-    percent: number
-  }[]
+  defects: Array<{ type: string; count: number; percent: number }>
   processedAt: string
+  imageUrl?: string // Analysis Result에도 이미지 URL 추가
 }
 
 // 결함 패턴 분석 데이터
@@ -603,7 +600,7 @@ const PATTERN_ANALYSIS: Record<string, PatternAnalysis> = {
     phenomenon: "특이 불량 패턴이 검출되지 않음.\n공정 상태가 양호한 것으로 판단.",
     engineerGuide: "정상 공정 유지. 이전 런(Run) 데이터와의 연속성 및 골든 웨이퍼 관리 상태 확인."
   }
-};
+}
 
 // 클라이언트에서만 날짜 포맷팅하는 컴포넌트
 const ProcessedAtDisplay = memo(function ProcessedAtDisplay({ processedAt }: { processedAt: string }) {
@@ -624,10 +621,12 @@ const ProcessedAtDisplay = memo(function ProcessedAtDisplay({ processedAt }: { p
 })
 
 export default function WaferModelingPage() {
+  const [activeTab, setActiveTab] = useState("upload")
   const [currentStep, setCurrentStep] = useState(0)
   const [isProcessing, setIsProcessing] = useState(false)
   const [selectedWafer, setSelectedWafer] = useState<string | null>(null)
   const [wafers, setWafers] = useState<WaferData[]>([])
+  const [sessionWafers, setSessionWafers] = useState<WaferData[]>([]) // 이번 세션에서 분석된 웨이퍼들
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
   const [previewUrls, setPreviewUrls] = useState<string[]>([])
   const [showResultModal, setShowResultModal] = useState(false)
@@ -665,7 +664,8 @@ export default function WaferModelingPage() {
             bad: w.defect_count,
             total: w.die_count
           },
-          defects: [{ type: w.failure_type, count: w.defect_count, percent: 0 }]
+          defects: [{ type: w.failure_type, count: w.defect_count, percent: 0 }],
+          imageUrl: w.wafer_map // DB 컬럼 매핑 (img_url)
         }))
 
         setWafers(mappedWafers)
@@ -769,7 +769,6 @@ export default function WaferModelingPage() {
 
       console.log('Current NEXT_PUBLIC_API_URL:', process.env.NEXT_PUBLIC_API_URL)
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://3.39.251.229:5000'
-      // alert(API_URL)
 
       // [Step 1] Upload: 접수 및 ID 발급 (일괄 업로드)
       const uploadResponse = await fetch(`${API_URL}/wafer/upload`, {
@@ -793,12 +792,10 @@ export default function WaferModelingPage() {
       for (let i = 0; i < lotNames.length; i++) {
         const lotName = lotNames[i]
 
-        // [Step 2] Processing Animation (각 웨이퍼마다 간단히 보여줌)
-        // 첫 번째 웨이퍼일 때만 전체 단계 애니메이션 보여주거나, 
-        // 그냥 단순히 분석 단계(3)로 표시
+        // [Step 2] Processing Animation
         setCurrentStep(3)
 
-        // [Step 3] Analyze: 실제 분석 수행 (batch_id 전달)
+        // [Step 3] Analyze: 실제 분석 수행
         const analyzeResponse = await fetch(`${API_URL}/wafer/${lotName}/analyze?batch_id=${batchId}`, {
           method: 'POST'
         })
@@ -811,7 +808,7 @@ export default function WaferModelingPage() {
         const analyzeData = await analyzeResponse.json()
         const resultData = analyzeData.result
 
-        // Map Backend Response to UI Model (Backend uses snake_case)
+        // Map Backend Response to UI Model
         const totalDie = resultData.die_count || 1024
         const goodDieCount = totalDie - (resultData.defect_count || 0)
         const badDieCount = resultData.defect_count || 0
@@ -829,6 +826,7 @@ export default function WaferModelingPage() {
             { type: resultData.failure_type || 'None', count: badDieCount, percent: 100 }
           ],
           processedAt: new Date().toISOString(),
+          imageUrl: analyzeData.img_url
         }
 
         // 배치 결과에 추가
@@ -847,10 +845,15 @@ export default function WaferModelingPage() {
             bad: result.badDie,
             total: result.goodDie + result.badDie
           },
-          defects: result.defects
+          defects: result.defects,
+          imageUrl: result.imageUrl,
+          defectDensity: result.goodDie + result.badDie > 0
+            ? parseFloat(((result.badDie / (result.goodDie + result.badDie)) * 100).toFixed(2))
+            : 0
         }
 
         setWafers(prev => [newWafer, ...prev])
+        setSessionWafers(prev => [newWafer, ...prev])
 
         // 첫 번째 완료된 웨이퍼를 자동으로 선택
         if (!selectedResultWaferId) {
@@ -858,16 +861,12 @@ export default function WaferModelingPage() {
         }
 
         lastResult = result
-        // 다음 분석 전 살짝 대기 (부하 조절)
+        // 다음 분석 전 살짝 대기
         await new Promise(resolve => setTimeout(resolve, 500))
       }
 
-      // 배치 분석 결과 모달 표시 (현재 누적된 모든 완료 웨이퍼를 대상으로 표시)
+      // 배치 분석 결과 모달 표시
       if (batchResults.length > 0) {
-        // 기존 wafers에서 완료된 것들 + 이번에 분석된 것들 (중복 주의: wafers는 아래에서 업데이트됨)
-        // startProcessing 시점에서는 'setWafers'가 비동기라 아직 반영 안됐을 수 있으므로
-        // (existing completed wafers) + (new batchResults) 형태로 합쳐서 보여주는 것이 안전
-
         const existingCompleted = wafers.filter(w => w.status === "completed")
         const allCompletedResults: AnalysisResult[] = [
           // 기존 완료된 웨이퍼들을 AnalysisResult로 변환
@@ -878,7 +877,8 @@ export default function WaferModelingPage() {
             goodDie: w.waferMapData?.good || 0,
             badDie: w.waferMapData?.bad || 0,
             defects: w.defects || [],
-            processedAt: w.processedAt || new Date().toISOString()
+            processedAt: w.processedAt || new Date().toISOString(),
+            imageUrl: w.imageUrl // Add imageUrl
           })),
           // 이번에 분석된 결과
           ...batchResults
@@ -907,13 +907,15 @@ export default function WaferModelingPage() {
       setIsProcessing(false)
       setCurrentStep(0)
     }
-  }, [uploadedFiles])
+  }, [uploadedFiles, wafers, selectedResultWaferId])
 
   const resetProcess = useCallback(() => {
     setCurrentStep(0)
     setIsProcessing(false)
     setUploadedFiles([])
     setAnalysisResult(null)
+    setSessionWafers([])
+    setBatchAnalysisResults([])
     // previewUrls는 useEffect의 cleanup에서 자동으로 정리됨
   }, [])
 
@@ -923,13 +925,13 @@ export default function WaferModelingPage() {
     setUploadedFiles([])
   }, [])
 
-  // 배치 결과 리포트 보기 (현재 화면에 있는 웨이퍼들 기준)
+  // 배치 결과 리포트 보기 (현재 세션에서 분석된 웨이퍼들 기준)
   const handleShowBatchReport = useCallback(() => {
-    // 화면에 로드된 웨이퍼 중 분석 완료된 건들만 집계
-    const completedWafers = wafers.filter(w => w.status === "completed")
+    // 세션에 있는 웨이퍼 중 분석 완료된 건들만 집계
+    const completedWafers = sessionWafers.filter(w => w.status === "completed")
 
     if (completedWafers.length === 0) {
-      alert("분석 완료된 웨이퍼가 없습니다.")
+      alert("분석 완료된 웨이퍼가 갑습니다.")
       return
     }
 
@@ -952,6 +954,7 @@ export default function WaferModelingPage() {
         badDie: bad,
         defects: defects,
         processedAt: w.processedAt || new Date().toISOString(),
+        imageUrl: w.imageUrl // Add imageUrl
       }
     })
 
@@ -960,7 +963,7 @@ export default function WaferModelingPage() {
     const lastProcessed = results.length > 0 ? results[0].processedAt : new Date().toISOString()
     setBatchProcessedAt(lastProcessed)
     setShowBatchResultModal(true)
-  }, [wafers])
+  }, [sessionWafers])
 
   const handleWaferView = useCallback((waferId: string) => {
     setSelectedWafer(waferId)
@@ -976,12 +979,24 @@ export default function WaferModelingPage() {
         badDie: wafer.waferMapData.bad,
         defects: wafer.defects || [],
         processedAt: wafer.processedAt || new Date().toISOString(),
+        imageUrl: wafer.imageUrl // Pass imageUrl
       }
       setAnalysisResult(result)
       setWaferMapStats(wafer.waferMapData)
       setShowResultModal(true)
     }
   }, [wafers])
+
+  // 목록에서 웨이퍼 클릭 시 분석 결과 탭으로 이동
+  const handleWaferClick = useCallback((wafer: WaferData) => {
+    if (wafer.status === "completed") {
+      setSelectedResultWaferId(wafer.id)
+      if (wafer.waferMapData) {
+        setWaferMapStats(wafer.waferMapData)
+      }
+      setActiveTab("results")
+    }
+  }, [])
 
   // 정렬 핸들러
   const handleSort = useCallback((field: SortField) => {
@@ -1100,7 +1115,7 @@ export default function WaferModelingPage() {
                 size="sm"
                 onClick={handleShowBatchReport}
                 className="bg-primary/10 hover:bg-primary/20 border-primary/50 text-primary"
-                disabled={wafers.filter(w => w.status === "completed").length === 0}
+                disabled={sessionWafers.filter(w => w.status === "completed").length === 0}
               >
                 <BarChart3 className="w-4 h-4 mr-2" />
                 배치 결과 리포트
@@ -1135,7 +1150,7 @@ export default function WaferModelingPage() {
       </Card>
 
       {/* Main Content Tabs */}
-      <Tabs defaultValue="upload" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
           <TabsTrigger value="upload">파일 업로드</TabsTrigger>
           <TabsTrigger value="wafers">웨이퍼 목록</TabsTrigger>
@@ -1347,7 +1362,8 @@ export default function WaferModelingPage() {
                       paginatedWafers.map((wafer) => (
                         <tr
                           key={wafer.id}
-                          className="hover:bg-muted/30 transition-colors"
+                          className="hover:bg-muted/30 transition-colors cursor-pointer"
+                          onClick={() => handleWaferClick(wafer)}
                         >
                           <td className="px-4 py-3 whitespace-nowrap">
                             <div className="font-medium text-foreground">{wafer.id}</div>
@@ -1453,21 +1469,27 @@ export default function WaferModelingPage() {
             </Card>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Wafer Map */}
-              <Card>
+              {/* Left Column: Wafer Map Visualization */}
+              <Card className="md:col-span-1 bg-card border-border h-full">
                 <CardHeader>
-                  <CardTitle>칩 맵</CardTitle>
-                  <CardDescription>{selectedWaferData.id} 분석 결과</CardDescription>
+                  <CardTitle>웨이퍼 맵 (Wafer Map)</CardTitle>
+                  <CardDescription>
+                    {selectedWaferData.id} 분석 결과
+                  </CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <WaferMapVisualization
-                    onStatsChange={setWaferMapStats}
-                    waferStats={selectedWaferData.waferMapData || undefined}
-                  />
+                <CardContent className="flex items-center justify-center min-h-[400px]">
+                  {waferMapStats && (
+                    <div className="w-full max-w-sm">
+                      <WaferMapVisualization
+                        waferStats={waferMapStats}
+                        imageUrl={selectedWaferData.imageUrl}
+                      />
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
-              {/* Classification Results */}
+              {/* Right Column: Analysis Detail & Guidelines */}
               <Card>
                 <CardHeader>
                   <CardTitle>분류 결과 상세</CardTitle>
