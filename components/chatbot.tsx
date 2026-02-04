@@ -72,21 +72,52 @@ export function ChatBot({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
     }
 
     setMessages(prev => [...prev, userMessage])
+    const currentInput = input.trim()
     setInput("")
     setIsLoading(true)
 
-    // Simulate AI response delay
-    await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000))
+    try {
+      // 실제 백엔드 API 호출
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:5000'
+      
+      const response = await fetch(`${API_URL}/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: [...messages, userMessage].map(msg => ({
+            role: msg.role,
+            content: msg.content
+          }))
+        })
+      })
 
-    const assistantMessage: Message = {
-      id: (Date.now() + 1).toString(),
-      role: "assistant",
-      content: getResponse(input),
-      timestamp: new Date()
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const data = await response.json()
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: data.message?.content || "죄송합니다. 응답을 받을 수 없습니다.",
+        timestamp: new Date()
+      }
+
+      setMessages(prev => [...prev, assistantMessage])
+    } catch (error) {
+      console.error('챗봇 API 오류:', error)
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: "죄송합니다. 서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.",
+        timestamp: new Date()
+      }
+      setMessages(prev => [...prev, errorMessage])
+    } finally {
+      setIsLoading(false)
     }
-
-    setMessages(prev => [...prev, assistantMessage])
-    setIsLoading(false)
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
