@@ -60,6 +60,7 @@ interface WaferData {
   defects?: Array<{ type: string; count: number; percent: number }>
   defectDensity?: number // Explicit field for list view
   imageUrl?: string // 웨이퍼 맵 이미지 URL (Firebase)
+  confidence?: number // 신뢰도 (DB confidence 컬럼)
 }
 
 // Demo wafer data
@@ -284,10 +285,11 @@ const WaferThumbnailCard = memo(function WaferThumbnailCard({
       <div className="p-3 space-y-2">
         {/* 웨이퍼 맵 썸네일 */}
         <div className="relative aspect-square w-full rounded-md overflow-hidden bg-muted/30 border border-border">
-          {wafer.status === "completed" && wafer.waferMapData ? (
-            <WaferMapMini
-              className="w-full h-full"
-              waferStats={wafer.waferMapData}
+          {wafer.status === "completed" && wafer.imageUrl ? (
+            <img
+              src={wafer.imageUrl}
+              alt={wafer.id}
+              className="w-full h-full object-cover"
             />
           ) : wafer.status === "processing" ? (
             <div className="w-full h-full flex items-center justify-center">
@@ -305,11 +307,11 @@ const WaferThumbnailCard = memo(function WaferThumbnailCard({
           <div className="font-medium text-sm text-foreground truncate">
             {wafer.id}
           </div>
-          {wafer.status === "completed" && wafer.yield !== null ? (
+          {wafer.status === "completed" && wafer.defectDensity !== undefined ? (
             <>
               <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">수율</span>
-                <span className="font-semibold text-foreground">{wafer.yield}%</span>
+                <span className="text-muted-foreground">결함 밀도</span>
+                <span className="font-semibold text-foreground">{wafer.defectDensity.toFixed(2)}%</span>
               </div>
               {wafer.grade && (
                 <div className="flex items-center justify-between">
@@ -349,6 +351,29 @@ const WaferListNavigation = memo(function WaferListNavigation({
 
   // 완료된 웨이퍼만 필터링
   const completedWafers = wafers.filter(w => w.status === "completed")
+
+  // 선택된 웨이퍼 중심으로 10개만 표시
+  const getDisplayWafers = () => {
+    if (!selectedWaferId || completedWafers.length === 0) {
+      return completedWafers.slice(0, 10)
+    }
+
+    const selectedIndex = completedWafers.findIndex(w => w.id === selectedWaferId)
+    if (selectedIndex === -1) {
+      return completedWafers.slice(0, 10)
+    }
+
+    // 선택된 웨이퍼를 중심으로 앞뒤 5개씩
+    const start = Math.max(0, selectedIndex - 5)
+    const end = Math.min(completedWafers.length, start + 10)
+
+    // 만약 끝에 도달해서 10개가 안되면 시작점 조정
+    const adjustedStart = Math.max(0, end - 10)
+
+    return completedWafers.slice(adjustedStart, end)
+  }
+
+  const displayWafers = getDisplayWafers()
 
   // 스크롤 가능 여부 확인
   const checkScrollability = useCallback(() => {
@@ -481,7 +506,7 @@ const WaferListNavigation = memo(function WaferListNavigation({
             style={{ scrollbarWidth: 'thin' }}
           >
             <div className="flex gap-3 pb-2">
-              {completedWafers.map((wafer) => (
+              {displayWafers.map((wafer) => (
                 <div
                   key={wafer.id}
                   ref={(el) => {
@@ -555,6 +580,8 @@ interface AnalysisResult {
   defects: Array<{ type: string; count: number; percent: number }>
   processedAt: string
   imageUrl?: string // Analysis Result에도 이미지 URL 추가
+  confidence?: number // 신뢰도
+  defectDensity?: number // 결함 밀도
 }
 
 // 결함 패턴 분석 데이터
@@ -644,11 +671,27 @@ export default function WaferModelingPage() {
   const [totalItems, setTotalItems] = useState(0)
   const [jumpPage, setJumpPage] = useState("")
 
+  // 패턴 분석 탭 상태
+  const [patternTab, setPatternTab] = useState<'phenomenon' | 'guide'>('phenomenon')
+
+
   // 웨이퍼 데이터 가져오기 (DB 연동)
-  const fetchWafers = useCallback(async (page: number) => {
+  // [추가] 이미지 프리로딩 (Preloading)
+  useEffect(() => {
+    if (wafers.length > 0) {
+      wafers.forEach(wafer => {
+        if (wafer.imageUrl) {
+          const img = new Image()
+          img.src = wafer.imageUrl
+        }
+      })
+    }
+  }, [wafers])
+
+  const fetchWafers = useCallback(async (pageNum: number) => {
     try {
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://3.39.251.229:5000'
-      const res = await fetch(`${API_URL}/wafer/list?page=${page}&limit=${itemsPerPage}`)
+      const res = await fetch(`${API_URL}/wafer/list?page=${pageNum}&limit=${itemsPerPage}`)
       if (res.ok) {
         const data = await res.json()
 
@@ -657,15 +700,17 @@ export default function WaferModelingPage() {
           batch: "BATCH",
           status: "completed",
           yield: w.die_count > 0 ? parseFloat(((1 - w.defect_density) * 100).toFixed(1)) : 0,
-          grade: w.total_grade,
+          grade: w.total_grade || '등급 없음', // null 처리
           processedAt: w.created_at,
           waferMapData: {
-            good: w.die_count - w.defect_count,
-            bad: w.defect_count,
+            good: w.die_count - w.defect_count, // Good Die = 전체 - 불량
+            bad: w.defect_count, // Bad Die = 불량 개수
             total: w.die_count
           },
-          defects: [{ type: w.failure_type, count: w.defect_count, percent: 0 }],
-          imageUrl: w.wafer_map // DB 컬럼 매핑 (img_url)
+          defects: [{ type: w.failure_type, count: w.defect_count, percent: w.confidence ? w.confidence * 100 : 0 }], // confidence 백분율
+          imageUrl: w.wafer_map, // DB 컬럼 매핑 (img_url)
+          defectDensity: w.defect_density ? parseFloat((w.defect_density * 100).toFixed(2)) : 0, // 백분율로 변환
+          confidence: w.confidence ? w.confidence * 100 : 0 // 신뢰도 백분율
         }))
 
         setWafers(mappedWafers)
@@ -819,14 +864,16 @@ export default function WaferModelingPage() {
         const result: AnalysisResult = {
           waferId: analyzeData.lotName,
           yield: yieldVal,
-          grade: resultData.total_grade || 'F',
+          grade: resultData.total_grade || '등급 없음', // null 처리
           goodDie: goodDieCount,
           badDie: badDieCount,
           defects: [
-            { type: resultData.failure_type || 'None', count: badDieCount, percent: 100 }
+            { type: resultData.failure_type || 'None', count: badDieCount, percent: resultData.confidence ? resultData.confidence * 100 : 0 }
           ],
           processedAt: new Date().toISOString(),
-          imageUrl: analyzeData.img_url
+          imageUrl: analyzeData.img_url,
+          confidence: resultData.confidence ? resultData.confidence * 100 : 0, // 신뢰도 백분율
+          defectDensity: resultData.defect_density ? parseFloat((resultData.defect_density * 100).toFixed(2)) : 0 // 결함 밀도 백분율
         }
 
         // 배치 결과에 추가
@@ -847,9 +894,8 @@ export default function WaferModelingPage() {
           },
           defects: result.defects,
           imageUrl: result.imageUrl,
-          defectDensity: result.goodDie + result.badDie > 0
-            ? parseFloat(((result.badDie / (result.goodDie + result.badDie)) * 100).toFixed(2))
-            : 0
+          defectDensity: result.defectDensity || 0,
+          confidence: result.confidence || 0 // 신뢰도 추가
         }
 
         setWafers(prev => [newWafer, ...prev])
@@ -873,12 +919,14 @@ export default function WaferModelingPage() {
           ...existingCompleted.map(w => ({
             waferId: w.id,
             yield: w.yield || 0,
-            grade: w.grade || 'F',
+            grade: w.grade || '등급 없음',
             goodDie: w.waferMapData?.good || 0,
             badDie: w.waferMapData?.bad || 0,
             defects: w.defects || [],
             processedAt: w.processedAt || new Date().toISOString(),
-            imageUrl: w.imageUrl // Add imageUrl
+            imageUrl: w.imageUrl, // Add imageUrl
+            confidence: w.confidence || 0,
+            defectDensity: w.defectDensity || 0
           })),
           // 이번에 분석된 결과
           ...batchResults
@@ -949,12 +997,14 @@ export default function WaferModelingPage() {
       return {
         waferId: w.id,
         yield: w.yield || 0,
-        grade: w.grade || 'F',
+        grade: w.grade || '등급 없음',
         goodDie: good,
         badDie: bad,
         defects: defects,
         processedAt: w.processedAt || new Date().toISOString(),
-        imageUrl: w.imageUrl // Add imageUrl
+        imageUrl: w.imageUrl, // Add imageUrl
+        confidence: w.confidence || 0,
+        defectDensity: w.defectDensity || 0
       }
     })
 
@@ -974,12 +1024,14 @@ export default function WaferModelingPage() {
       const result: AnalysisResult = {
         waferId: wafer.id,
         yield: wafer.yield,
-        grade: wafer.grade || 'F',
+        grade: wafer.grade || '등급 없음',
         goodDie: wafer.waferMapData.good,
         badDie: wafer.waferMapData.bad,
         defects: wafer.defects || [],
         processedAt: wafer.processedAt || new Date().toISOString(),
-        imageUrl: wafer.imageUrl // Pass imageUrl
+        imageUrl: wafer.imageUrl, // Pass imageUrl
+        confidence: wafer.confidence || 0,
+        defectDensity: wafer.defectDensity || 0
       }
       setAnalysisResult(result)
       setWaferMapStats(wafer.waferMapData)
@@ -995,6 +1047,46 @@ export default function WaferModelingPage() {
         setWaferMapStats(wafer.waferMapData)
       }
       setActiveTab("results")
+    }
+  }, [])
+
+  // CSV 내보내기 함수
+  const handleExportCSV = useCallback(async () => {
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://3.39.251.229:5000'
+      const response = await fetch(`${API_URL}/wafer/export`)
+
+      if (!response.ok) {
+        throw new Error('Failed to export data')
+      }
+
+      // CSV 파일 다운로드
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+
+      // 파일명 추출 (Content-Disposition 헤더에서)
+      const contentDisposition = response.headers.get('Content-Disposition')
+      let filename = `wafer_data_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.csv`
+
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/)
+        if (filenameMatch && filenameMatch[1]) {
+          filename = filenameMatch[1].replace(/['"]/g, '')
+        }
+      }
+
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+
+      console.log('CSV export successful:', filename)
+    } catch (error) {
+      console.error('CSV export failed:', error)
+      alert('CSV 내보내기에 실패했습니다.')
     }
   }, [])
 
@@ -1311,7 +1403,7 @@ export default function WaferModelingPage() {
               <h3 className="text-lg font-medium text-foreground">웨이퍼 목록</h3>
               <p className="text-sm text-muted-foreground">분석 대기 및 완료된 웨이퍼 목록</p>
             </div>
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="sm" onClick={handleExportCSV}>
               <Download className="w-4 h-4 mr-2" />
               결과 내보내기
             </Button>
@@ -1483,6 +1575,7 @@ export default function WaferModelingPage() {
                       <WaferMapVisualization
                         waferStats={waferMapStats}
                         imageUrl={selectedWaferData.imageUrl}
+                        confidence={selectedWaferData.confidence}
                       />
                     </div>
                   )}
@@ -1525,43 +1618,150 @@ export default function WaferModelingPage() {
                       </span>
                     </div>
 
-                    {/* 수율 및 등급 */}
-                    {selectedWaferData.yield !== null && (
-                      <div className="grid grid-cols-2 gap-3 pt-2 border-t border-border">
-                        <div className="p-3 bg-primary/10 rounded-lg">
-                          <div className="text-xs text-muted-foreground mb-1">수율</div>
-                          <div className="text-2xl font-bold text-primary">{selectedWaferData.yield}%</div>
+                    {/* 결함 밀도, 신뢰도 및 등급 */}
+                    <div className="grid grid-cols-3 gap-3 pt-2 border-t border-border">
+                      <div className="p-3 bg-destructive/10 rounded-lg">
+                        <div className="text-xs text-muted-foreground mb-1">결함 밀도</div>
+                        <div className="text-2xl font-bold text-destructive">
+                          {selectedWaferData.defectDensity?.toFixed(2) ?? '0.00'}%
                         </div>
-                        {selectedWaferData.grade && (
-                          <div className="p-3 bg-success/10 rounded-lg">
-                            <div className="text-xs text-muted-foreground mb-1">등급</div>
-                            <div className="text-2xl font-bold text-success">{selectedWaferData.grade}</div>
-                          </div>
-                        )}
                       </div>
-                    )}
+                      <div className="p-3 bg-primary/10 rounded-lg">
+                        <div className="text-xs text-muted-foreground mb-1">신뢰도</div>
+                        <div className="text-2xl font-bold text-primary">
+                          {selectedWaferData.confidence?.toFixed(1) ?? '0.0'}%
+                        </div>
+                      </div>
+                      <div className="p-3 bg-success/10 rounded-lg">
+                        <div className="text-xs text-muted-foreground mb-1">등급</div>
+                        <div className="text-2xl font-bold text-success">
+                          {selectedWaferData.grade || '등급 없음'}
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   {/* 불량 패턴 */}
-                  <div className="pt-4 border-t border-border">
-                    <h4 className="text-sm font-medium text-foreground mb-3">불량 패턴</h4>
+                  <div className="pt-4 border-t border-border space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-medium text-foreground">불량 패턴</h4>
+                      {selectedWaferData.defects && selectedWaferData.defects.length > 0 && PATTERN_ANALYSIS[selectedWaferData.defects[0].type] && (
+                        <div className="flex gap-2">
+                          <Button
+                            variant={patternTab === 'phenomenon' ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => setPatternTab('phenomenon')}
+                            className="h-7 text-xs"
+                          >
+                            현상 분석
+                          </Button>
+                          <Button
+                            variant={patternTab === 'guide' ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => setPatternTab('guide')}
+                            className="h-7 text-xs"
+                          >
+                            엔지니어 가이드
+                          </Button>
+                        </div>
+                      )}
+                      {(!selectedWaferData.defects || selectedWaferData.defects.length === 0) && PATTERN_ANALYSIS['None'] && (
+                        <div className="flex gap-2">
+                          <Button
+                            variant={patternTab === 'phenomenon' ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => setPatternTab('phenomenon')}
+                            className="h-7 text-xs"
+                          >
+                            현상 분석
+                          </Button>
+                          <Button
+                            variant={patternTab === 'guide' ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => setPatternTab('guide')}
+                            className="h-7 text-xs"
+                          >
+                            엔지니어 가이드
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+
                     {selectedWaferData.defects && selectedWaferData.defects.length > 0 ? (
-                      <Badge
-                        variant="outline"
-                        className="text-sm px-3 py-1.5"
-                      >
-                        {selectedWaferData.defects[0].type}
-                      </Badge>
-                    ) : (
-                      <div className="flex items-center gap-2">
+                      <>
                         <Badge
                           variant="outline"
-                          className="text-sm px-3 py-1.5 bg-success/10 border-success/30 text-success"
+                          className="text-sm px-3 py-1.5"
                         >
-                          정상
+                          {selectedWaferData.defects[0].type}
                         </Badge>
-                        <span className="text-sm text-muted-foreground">불량 패턴이 검출되지 않았습니다.</span>
-                      </div>
+
+                        {/* 패턴 분석 정보 */}
+                        {PATTERN_ANALYSIS[selectedWaferData.defects[0].type] && (
+                          <div className="p-3 border border-destructive/20 bg-destructive/5 rounded-md">
+                            {patternTab === 'phenomenon' ? (
+                              <div className="flex items-start gap-2">
+                                <Info className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+                                <div className="flex-1">
+                                  <h5 className="text-sm font-semibold text-foreground mb-1">현상 분석</h5>
+                                  <p className="text-sm text-foreground/90 leading-relaxed">
+                                    {PATTERN_ANALYSIS[selectedWaferData.defects[0].type].phenomenon}
+                                  </p>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-start gap-2">
+                                <CheckCircle2 className="w-4 h-4 text-success mt-0.5 flex-shrink-0" />
+                                <div className="flex-1">
+                                  <h5 className="text-sm font-semibold text-foreground mb-1">엔지니어 가이드</h5>
+                                  <p className="text-sm text-foreground/90 leading-relaxed">
+                                    {PATTERN_ANALYSIS[selectedWaferData.defects[0].type].engineerGuide}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant="outline"
+                            className="text-sm px-3 py-1.5 bg-success/10 border-success/30 text-success"
+                          >
+                            정상
+                          </Badge>
+                          <span className="text-sm text-muted-foreground">불량 패턴이 검출되지 않았습니다.</span>
+                        </div>
+
+                        {/* None 패턴 분석 정보 */}
+                        {PATTERN_ANALYSIS['None'] && (
+                          <div className="p-3 border border-success/20 bg-success/5 rounded-md">
+                            {patternTab === 'phenomenon' ? (
+                              <div className="flex items-start gap-2">
+                                <Info className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+                                <div className="flex-1">
+                                  <h5 className="text-sm font-semibold text-foreground mb-1">현상 분석</h5>
+                                  <p className="text-sm text-foreground/90 leading-relaxed">
+                                    {PATTERN_ANALYSIS['None'].phenomenon}
+                                  </p>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-start gap-2">
+                                <CheckCircle2 className="w-4 h-4 text-success mt-0.5 flex-shrink-0" />
+                                <div className="flex-1">
+                                  <h5 className="text-sm font-semibold text-foreground mb-1">엔지니어 가이드</h5>
+                                  <p className="text-sm text-foreground/90 leading-relaxed">
+                                    {PATTERN_ANALYSIS['None'].engineerGuide}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </CardContent>

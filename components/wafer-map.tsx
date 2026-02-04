@@ -56,11 +56,13 @@ interface WaferMapStats {
 export const WaferMapVisualization = memo(function WaferMapVisualization({
   onStatsChange,
   waferStats,
-  imageUrl
+  imageUrl,
+  confidence
 }: {
   onStatsChange?: (stats: WaferMapStats) => void
   waferStats?: { good: number; bad: number; total: number }
   imageUrl?: string
+  confidence?: number
 }) {
   const [dies, setDies] = useState<Die[]>([])
   const gridSize = 34 // 원형 테두리 크기
@@ -175,7 +177,7 @@ export const WaferMapVisualization = memo(function WaferMapVisualization({
   }, [dies, insideCircleMap, isInsideDieArea, imageUrl, waferStats])
 
   const total = stats.good + stats.bad
-  const confidencePercent = total > 0 ? ((stats.good / total) * 100).toFixed(1) : "0.0"
+  const confidencePercent = confidence !== undefined ? confidence.toFixed(1) : "0.0"
 
   // stats가 변경될 때마다 부모 컴포넌트에 알림
   useEffect(() => {
@@ -206,14 +208,17 @@ export const WaferMapVisualization = memo(function WaferMapVisualization({
       {/* Chip Map Grid - 원형 웨이퍼 */}
       <div className="relative aspect-square max-w-md mx-auto">
         {imageUrl ? (
-          <div className="w-full h-full rounded-full border-2 border-border bg-black overflow-hidden relative">
+          <div className="w-full h-full rounded-full border-2 border-border bg-transparent overflow-hidden relative">
             {/* 실제 웨이퍼 이미지 표시 */}
-            <div className="absolute inset-0 flex items-center justify-center bg-muted/10">
+            <div className="w-full h-full flex items-center justify-center bg-transparent">
               <img
                 src={imageUrl}
                 alt="Wafer Map Analysis Result"
-                className="w-full h-full object-contain"
-                style={{ imageRendering: 'pixelated' }}
+                className="w-full h-full object-contain p-4 -translate-x-1 -translate-y-1"
+                style={{
+                  imageRendering: 'pixelated',
+                  mixBlendMode: 'screen'
+                }}
               />
             </div>
           </div>
@@ -285,7 +290,7 @@ export const WaferMapVisualization = memo(function WaferMapVisualization({
       {/* Confidence Info */}
       <div className="text-center">
         <div className="text-2xl font-bold text-foreground">{confidencePercent}%</div>
-        <div className="text-sm text-muted-foreground">확신도 (Confidence)</div>
+        <div className="text-sm text-muted-foreground">신뢰도 (Confidence)</div>
       </div>
     </div>
   )
