@@ -695,23 +695,28 @@ export default function WaferModelingPage() {
       if (res.ok) {
         const data = await res.json()
 
+        console.log('[DEBUG] Backend response:', data.wafers.slice(0, 3)) // 처음 3개만 로그
+
         const mappedWafers: WaferData[] = data.wafers.map((w: any) => ({
           id: w.lot_name,
           batch: "BATCH",
           status: "completed",
+          // DB 값을 그대로 사용 (프론트엔드 자체 계산 제거)
           yield: w.die_count > 0 ? parseFloat(((1 - w.defect_density) * 100).toFixed(1)) : 0,
-          grade: w.total_grade || '등급 없음', // null 처리
-          processedAt: w.created_at,
+          grade: w.total_grade || '등급 없음',
+          processedAt: w.created_at, // 이미 백엔드에서 포맷팅된 문자열
           waferMapData: {
-            good: w.die_count - w.defect_count, // Good Die = 전체 - 불량
-            bad: w.defect_count, // Bad Die = 불량 개수
+            good: w.die_count - w.defect_count,
+            bad: w.defect_count,
             total: w.die_count
           },
-          defects: [{ type: w.failure_type, count: w.defect_count, percent: w.confidence ? w.confidence * 100 : 0 }], // confidence 백분율
-          imageUrl: w.wafer_map, // DB 컬럼 매핑 (img_url)
-          defectDensity: w.defect_density ? parseFloat((w.defect_density * 100).toFixed(2)) : 0, // 백분율로 변환
-          confidence: w.confidence ? w.confidence * 100 : 0 // 신뢰도 백분율
+          defects: [{ type: w.failure_type, count: w.defect_count, percent: w.confidence ? w.confidence * 100 : 0 }],
+          imageUrl: w.wafer_map,
+          defectDensity: w.defect_density ? parseFloat((w.defect_density * 100).toFixed(2)) : 0,
+          confidence: w.confidence ? w.confidence * 100 : 0
         }))
+
+        console.log('[DEBUG] Mapped wafers:', mappedWafers.slice(0, 3)) // 처음 3개만 로그
 
         setWafers(mappedWafers)
         setTotalItems(data.total)
@@ -879,27 +884,9 @@ export default function WaferModelingPage() {
         // 배치 결과에 추가
         batchResults.push(result)
 
-        // Update wafers list (하나씩 추가)
-        const newWafer: WaferData = {
-          id: result.waferId,
-          batch: batchId || "BATCH-001",
-          status: "completed" as const,
-          yield: result.yield,
-          grade: result.grade,
-          processedAt: result.processedAt,
-          waferMapData: {
-            good: result.goodDie,
-            bad: result.badDie,
-            total: result.goodDie + result.badDie
-          },
-          defects: result.defects,
-          imageUrl: result.imageUrl,
-          defectDensity: result.defectDensity || 0,
-          confidence: result.confidence || 0 // 신뢰도 추가
-        }
-
-        setWafers(prev => [newWafer, ...prev])
-        setSessionWafers(prev => [newWafer, ...prev])
+        // 프론트엔드 임시 업데이트 로직 삭제 (DB 데이터 불일치 방지)
+        // setWafers(prev => [newWafer, ...prev])
+        // setSessionWafers(prev => [newWafer, ...prev])
 
         // 첫 번째 완료된 웨이퍼를 자동으로 선택
         if (!selectedResultWaferId) {
@@ -911,28 +898,14 @@ export default function WaferModelingPage() {
         await new Promise(resolve => setTimeout(resolve, 500))
       }
 
+      // 모든 분석 완료 후 DB에서 최신 목록 다시 불러오기 (가짜 데이터 방지)
+      await fetchWafers(1)
+      setCurrentPage(1)
+
       // 배치 분석 결과 모달 표시
       if (batchResults.length > 0) {
-        const existingCompleted = wafers.filter(w => w.status === "completed")
-        const allCompletedResults: AnalysisResult[] = [
-          // 기존 완료된 웨이퍼들을 AnalysisResult로 변환
-          ...existingCompleted.map(w => ({
-            waferId: w.id,
-            yield: w.yield || 0,
-            grade: w.grade || '등급 없음',
-            goodDie: w.waferMapData?.good || 0,
-            badDie: w.waferMapData?.bad || 0,
-            defects: w.defects || [],
-            processedAt: w.processedAt || new Date().toISOString(),
-            imageUrl: w.imageUrl, // Add imageUrl
-            confidence: w.confidence || 0,
-            defectDensity: w.defectDensity || 0
-          })),
-          // 이번에 분석된 결과
-          ...batchResults
-        ]
-
-        setBatchAnalysisResults(allCompletedResults)
+        // 이번 배치 결과만 표시하도록 수정 (기존 데이터 합치지 않음)
+        setBatchAnalysisResults(batchResults)
         setBatchProcessedAt(new Date().toISOString())
         setShowBatchResultModal(true)
       }
@@ -1479,7 +1452,7 @@ export default function WaferModelingPage() {
                             <GradeBadge grade={wafer.grade} />
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-muted-foreground">
-                            {wafer.processedAt ? new Date(wafer.processedAt).toLocaleString('ko-KR') : '-'}
+                            {wafer.processedAt ? wafer.processedAt.replace('T', ' ').split('.')[0] : '-'}
                           </td>
                         </tr>
                       ))
