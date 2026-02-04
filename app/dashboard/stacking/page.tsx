@@ -39,6 +39,7 @@ interface StackLayer {
   failureType?: string
   clusterLabel?: number
   dieStatus?: number // 1: Normal, 2: Defect
+  tsvMatrix?: number[][]
 }
 
 // Generate demo HBM stack data
@@ -357,7 +358,7 @@ const StackVisualization3D = memo(function StackVisualization3D({
                     {layer.name}
                   </div>
                   <div className="text-xs text-white/60">
-                    {layer.chipId ? layer.chipId.slice(-6) : `Yield: ${layer.yield.toFixed(1)}%`}
+                    {layer.failureType || 'None'}
                   </div>
                 </div>
               </div>
@@ -375,94 +376,110 @@ const StackVisualization3D = memo(function StackVisualization3D({
 })
 
 const LayerPlanarView = memo(function LayerPlanarView({ layer, stackIndex }: { layer: StackLayer; stackIndex: number }) {
-  const gridSize = 32
-  const [cells, setCells] = useState<LayerStatus[]>([])
+  // Use data from layer if available, otherwise fallback (or empty)
+  // User requested 32x32 visualization.
+  // The backend might send different sizes. We will try to rely on the backend data.
+
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const imageSize = 400 // 이미지 크기 (픽셀)
+  const imageSize = 400
 
-  // 클라이언트에서만 데이터 생성
   useEffect(() => {
-    // TSV 불량 패턴 사용
-    setCells(generateTSVDefectMap(layer.id, stackIndex, gridSize))
-  }, [layer.id, stackIndex, gridSize])
-
-  // Canvas에 이미지 그리기
-  useEffect(() => {
-    if (!canvasRef.current || cells.length === 0) return
-
+    if (!canvasRef.current) return
     const canvas = canvasRef.current
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    // Canvas 크기 설정
     canvas.width = imageSize
     canvas.height = imageSize
-
-    // 배경 투명하게 (회색 배경 제거)
     ctx.clearRect(0, 0, imageSize, imageSize)
 
-    // 셀 크기 계산
-    const cellSize = imageSize / gridSize
+    // Data Source
+    let matrix = layer.tsvMatrix
 
-    // 색상 정의
-    const colors: Record<LayerStatus, string> = {
-      good: '#22c55e',      // 초록색
-      warning: '#f59e0b',   // 노란색
-      defect: '#ef4444'     // 빨간색
+    // If no real data, show empty or placeholder?
+    // User wants to see *real* data. If missing, maybe black or empty.
+    if (!matrix || matrix.length === 0) {
+      // Fallback or empty
+      return
     }
 
-    // 그리드 그리기
-    cells.forEach((status, index) => {
-      const row = Math.floor(index / gridSize)
-      const col = index % gridSize
+    const rows = matrix.length
+    const cols = matrix[0].length || 1
 
-      const x = col * cellSize
-      const y = row * cellSize
+    const cellWidth = imageSize / cols
+    const cellHeight = imageSize / rows
 
-      // 셀 색상 채우기
-      ctx.fillStyle = colors[status]
-      ctx.fillRect(x, y, cellSize, cellSize)
+    const colors = {
+      0: '#22c55e', // Normal (Green)
+      1: '#ef4444', // Defect (Red)
+    }
+
+    // Default color for anything else
+    const defaultColor = '#f59e0b';
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const val = matrix[r][c]
+        // Default to warning if unknown value, but request says 0 and 1.
+        // If val is 0 -> Green, 1 -> Red.
+        // Using logic: val === 0 ? green : red
+        let fill = defaultColor;
+        if (val === 0) fill = colors[0];
+        else if (val === 1) fill = colors[1];
+
+        ctx.fillStyle = fill;
+        ctx.fillRect(c * cellWidth, r * cellHeight, cellWidth, cellHeight)
+      }
+    }
+
+  }, [layer.tsvMatrix, imageSize, layer.id])
+
+  // Stats for real data
+  const matrix = layer.tsvMatrix || []
+  let goodCount = 0
+  let defectCount = 0
+
+  if (matrix.length > 0) {
+    matrix.forEach(row => {
+      row.forEach(val => {
+        if (val === 0) goodCount++
+        else defectCount++
+      })
     })
+  }
 
-  }, [cells, imageSize, gridSize])
+  const totalCells = goodCount + defectCount
+  const defectRate = totalCells > 0 ? ((defectCount / totalCells) * 100).toFixed(2) : "0.00"
 
-  // TSV 불량 통계 계산
-  const defectCount = cells.filter(c => c === "defect").length
-  const warningCount = cells.filter(c => c === "warning").length
-  const goodCount = cells.filter(c => c === "good").length
-  const totalCells = cells.length
-  const defectRate = ((defectCount / totalCells) * 100).toFixed(2)
+  // Only calculate warning count if we had a 3rd state, but for now 0/1.
+  const warningCount = 0;
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <div>
           <h4 className="font-semibold text-foreground">TSV 불량 평면 이미지</h4>
-          <p className="text-xs text-muted-foreground">32x32 TSV 구조 (불량률: {defectRate}%)</p>
+          <p className="text-xs text-muted-foreground">
+            {matrix.length > 0 ? `${matrix.length}x${matrix[0]?.length || 0} 구조` : "No Data"} (불량률: {defectRate}%)
+          </p>
         </div>
         <Badge variant="outline" className="text-xs">
           {layer.name}
         </Badge>
-      </div >
+      </div>
 
-      {/* 범례 */}
-      < div className="flex items-center gap-4 text-xs" >
+      <div className="flex items-center gap-4 text-xs">
         <div className="flex items-center gap-1.5">
           <div className="w-3 h-3 rounded-sm bg-success/90" />
-          <span className="text-muted-foreground">정상 TSV</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded-sm bg-warning/90" />
-          <span className="text-muted-foreground">주의 TSV</span>
+          <span className="text-muted-foreground">정상 (0)</span>
         </div>
         <div className="flex items-center gap-1.5">
           <div className="w-3 h-3 rounded-sm bg-destructive/90" />
-          <span className="text-muted-foreground">불량 TSV</span>
+          <span className="text-muted-foreground">불량 (1)</span>
         </div>
-      </div >
+      </div>
 
-      {/* Canvas 이미지 */}
-      < div className="flex justify-center" >
+      <div className="flex justify-center">
         <div className="rounded-lg border border-border bg-muted/20 p-2">
           <canvas
             ref={canvasRef}
@@ -471,14 +488,14 @@ const LayerPlanarView = memo(function LayerPlanarView({ layer, stackIndex }: { l
               width: '100%',
               maxWidth: `${imageSize}px`,
               height: 'auto',
-              imageRendering: 'pixelated' // 선명한 픽셀 표시
+              imageRendering: 'pixelated'
             }}
           />
         </div>
-      </div >
+      </div>
 
       {/* 통계 정보 */}
-      < div className="grid grid-cols-3 gap-2 pt-2 border-t border-border" >
+      <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border">
         <div className="text-center">
           <div className="text-lg font-bold text-success">{goodCount}</div>
           <div className="text-xs text-muted-foreground">정상</div>
@@ -491,8 +508,8 @@ const LayerPlanarView = memo(function LayerPlanarView({ layer, stackIndex }: { l
           <div className="text-lg font-bold text-destructive">{defectCount}</div>
           <div className="text-xs text-muted-foreground">불량</div>
         </div>
-      </div >
-    </div >
+      </div>
+    </div>
   )
 })
 
@@ -519,15 +536,15 @@ const LayerDetailPanel = memo(function LayerDetailPanel({ layer }: { layer: Stac
         <div className="p-3 bg-muted/30 rounded-md text-sm">
           <div className="flex justify-between py-1 border-b border-border/50">
             <span className="text-muted-foreground">Chip ID</span>
-            <span className="font-mono">{layer.chipId || 'N/A'}</span>
+            <span className="font-mono">{layer.chipUid || 'N/A'}</span>
           </div>
           <div className="flex justify-between py-1 border-b border-border/50">
             <span className="text-muted-foreground">유형</span>
-            <span className="font-medium">{layer.failureType || 'N/A'}</span>
+            <span className="font-medium">{layer.failureType || 'None'}</span>
           </div>
           <div className="flex justify-between py-1 pt-2">
-            <span className="text-muted-foreground">Cluster</span>
-            <span className="font-medium">{layer.clusterLabel}</span>
+            <span className="text-muted-foreground">칩 수율</span>
+            <span className="font-medium">{layer.yield.toFixed(2)}%</span>
           </div>
         </div>
 
@@ -656,6 +673,8 @@ interface BackendLayer {
   inferred_type: string
   failure_type: string
   die_status?: number
+  tsv_matrix?: number[][]
+  chip_yield?: number
 }
 
 interface BackendStack {
@@ -697,22 +716,22 @@ export default function StackingVisualizationPage() {
         chipUid: bl.chip_id || `Unknown-${bl.layer_idx}`,
         type: "DRAM",
         status: status,
-        // 시뮬레이션 데이터에 없는 필드는 랜덤/기본값으로 그럴싸하게 생성
-        yield: status === 'good' ? 95 + Math.random() * 5 : 80 + Math.random() * 10,
+        yield: bl.chip_yield !== undefined ? bl.chip_yield : (status === 'good' ? 95 : 80),
         tsvAlignment: 98 + Math.random() * 2,
         bondingQuality: 96 + Math.random() * 4,
         temperature: 75 + Math.random() * 10,
         chipId: bl.chip_id,
         failureType: bl.failure_type,
         clusterLabel: bl.cluster_label,
-        dieStatus: bl.die_status
+        dieStatus: bl.die_status,
+        tsvMatrix: bl.tsv_matrix
       }
     })
   }, [])
 
   // 초기 더미 데이터 로드 및 히스토리 조회
   useEffect(() => {
-    setLayers(generateStackLayers(STACK_LAYERS))
+    // setLayers(generateStackLayers(STACK_LAYERS)) // Demo removed
     fetchHistory()
   }, [])
 
@@ -723,6 +742,14 @@ export default function StackingVisualizationPage() {
       if (res.ok) {
         const data = await res.json()
         setHistoryItems(data)
+
+        // Load latest history automatically
+        if (data && data.length > 0) {
+          handleHistorySelect(String(data[0].tsv_num))
+        } else {
+          // No history
+          setLayers([])
+        }
       }
     } catch (e) {
       console.error("Failed to fetch history:", e)
@@ -910,6 +937,26 @@ export default function StackingVisualizationPage() {
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </Button>
+
+                  <Select
+                    value={String(stackIndex)}
+                    onValueChange={(val) => setStackIndex(parseInt(val))}
+                    disabled={allStacks.length === 0}
+                  >
+                    <SelectTrigger className="h-9 w-[120px] border-none bg-transparent hover:bg-muted/50 focus:ring-0 text-xs font-medium justify-center">
+                      <SelectValue>
+                        Stack {allStacks.length > 0 ? stackIndex + 1 : 1}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {allStacks.map((_, idx) => (
+                        <SelectItem key={idx} value={String(idx)}>
+                          Stack {idx + 1}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
                   <Button
                     variant="outline"
                     size="icon"
@@ -919,9 +966,6 @@ export default function StackingVisualizationPage() {
                   >
                     <ChevronRight className="w-4 h-4" />
                   </Button>
-                  <span className="px-2 text-xs text-muted-foreground min-w-[80px] text-center">
-                    Stack {allStacks.length > 0 ? stackIndex + 1 : 1} / {allStacks.length > 0 ? allStacks.length : 1}
-                  </span>
                   <Button
                     variant="outline"
                     size="icon"
