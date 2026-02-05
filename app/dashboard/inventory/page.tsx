@@ -406,9 +406,9 @@ function AIQualityPanel({
   const topFailure =
     failureTypeDistribution.length > 0
       ? failureTypeDistribution.reduce(
-          (best, cur) => (cur.count > best.count ? cur : best),
-          failureTypeDistribution[0]
-        )
+        (best, cur) => (cur.count > best.count ? cur : best),
+        failureTypeDistribution[0]
+      )
       : null
 
   return (
@@ -771,9 +771,9 @@ function BaseTypePenaltyPanel() {
                                   "m-0.5 rounded-md border border-border h-10 flex items-center justify-center text-xs font-semibold tabular-nums",
                                   typeof p !== "number" && "bg-muted/30 text-muted-foreground",
                                   risk === "recommended" &&
-                                    "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+                                  "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
                                   risk === "caution" &&
-                                    "bg-amber-500/12 text-amber-600 dark:text-amber-400 border-amber-500/20",
+                                  "bg-amber-500/12 text-amber-600 dark:text-amber-400 border-amber-500/20",
                                   risk === "danger" && "bg-red-500/12 text-red-600 dark:text-red-400 border-red-500/20"
                                 )}
                               >
