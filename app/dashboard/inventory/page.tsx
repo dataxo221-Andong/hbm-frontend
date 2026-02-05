@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, type ChangeEvent } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -10,15 +10,10 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Search,
-  Package,
-  TrendingUp,
-  TrendingDown,
   AlertTriangle,
   CheckCircle2,
   Brain,
   RefreshCw,
-  ArrowRight,
-  Clock,
   Boxes,
   Sparkles,
   Layers,
@@ -290,105 +285,6 @@ const BASE_TYPE_PENALTY: Array<{ a: CanonicalFailureType; b: CanonicalFailureTyp
   { a: "Random", b: "Center", penalty: 0.25 },
   { a: "Random", b: "Edge-Ring", penalty: 0.25 },
 ]
-
-const statusConfig: Record<StockStatus, { label: string; color: string; bgColor: string }> = {
-  optimal: { label: "적정", color: "text-success", bgColor: "bg-success/10" },
-  low: { label: "부족", color: "text-warning", bgColor: "bg-warning/10" },
-  critical: { label: "긴급", color: "text-destructive", bgColor: "bg-destructive/10" },
-  excess: { label: "과잉", color: "text-primary", bgColor: "bg-primary/10" },
-}
-
-function StockLevelBar({ item }: { item: InventoryItem }) {
-  const percentage = (item.currentStock / item.maxStock) * 100
-  const minPercentage = (item.minStock / item.maxStock) * 100
-  const optimalPercentage = (item.optimalStock / item.maxStock) * 100
-
-  return (
-    <div className="relative h-3 bg-muted rounded-full overflow-hidden">
-      {/* Current stock level */}
-      <div
-        className={cn(
-          "absolute h-full rounded-full transition-all",
-          item.status === "optimal" && "bg-success",
-          item.status === "low" && "bg-warning",
-          item.status === "critical" && "bg-destructive",
-          item.status === "excess" && "bg-primary"
-        )}
-        style={{ width: `${Math.min(percentage, 100)}%` }}
-      />
-      {/* Min stock indicator */}
-      <div className="absolute top-0 bottom-0 w-0.5 bg-destructive/50" style={{ left: `${minPercentage}%` }} />
-      {/* Optimal stock indicator */}
-      <div className="absolute top-0 bottom-0 w-0.5 bg-foreground/30" style={{ left: `${optimalPercentage}%` }} />
-    </div>
-  )
-}
-
-function InventoryCard({ item }: { item: InventoryItem }) {
-  const config = statusConfig[item.status]
-
-  return (
-    <Card className={cn("transition-all hover:border-primary/50", item.status === "critical" && "border-destructive/50")}>
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between mb-3">
-          <div>
-            <h4 className="font-medium text-foreground">{item.name}</h4>
-            <p className="text-xs text-muted-foreground font-mono">{item.sku}</p>
-          </div>
-          <Badge className={cn("text-xs", config.bgColor, config.color)} variant="outline">
-            {config.label}
-          </Badge>
-        </div>
-
-        <div className="space-y-3">
-          <div>
-            <div className="flex items-baseline justify-between mb-1">
-              <span className="text-2xl font-bold text-foreground">{item.currentStock.toLocaleString()}</span>
-              <span className="text-sm text-muted-foreground">{item.unit}</span>
-            </div>
-            <StockLevelBar item={item} />
-            <div className="flex justify-between text-xs text-muted-foreground mt-1">
-              <span>최소: {item.minStock.toLocaleString()}</span>
-              <span>최대: {item.maxStock.toLocaleString()}</span>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between pt-2 border-t border-border">
-            <div
-              className={cn(
-                "flex items-center gap-1 text-sm",
-                item.trend === "up"
-                  ? "text-success"
-                  : item.trend === "down"
-                    ? "text-destructive"
-                    : "text-muted-foreground"
-              )}
-            >
-              {item.trend === "up" ? (
-                <TrendingUp className="w-4 h-4" />
-              ) : item.trend === "down" ? (
-                <TrendingDown className="w-4 h-4" />
-              ) : (
-                <ArrowRight className="w-4 h-4" />
-              )}
-              <span>
-                {item.trendValue > 0 ? "+" : ""}
-                {item.trendValue}%
-              </span>
-            </div>
-
-            {item.daysToReorder !== null && (
-              <div className="flex items-center gap-1 text-sm text-warning">
-                <Clock className="w-4 h-4" />
-                <span>{item.daysToReorder}일 내 발주 필요</span>
-              </div>
-            )}
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
 
 function AIQualityPanel({
   qualitySummary,
@@ -662,7 +558,7 @@ function BaseTypePenaltyPanel() {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
                     value={q}
-                    onChange={(e) => setQ(e.target.value)}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => setQ(e.target.value)}
                     placeholder="타입 검색 (예: Random Edge-Loc)"
                     className="pl-9"
                   />
@@ -802,10 +698,167 @@ function BaseTypePenaltyPanel() {
   )
 }
 
+type BalanceLabel = "부족" | "적정" | "잉여"
+
+function clamp(n: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, n))
+}
+
+function balanceLabelForAvailability(availability: number): BalanceLabel {
+  // 요구사항: 40% 미만이면 부족, 100% 이상이면 잉여
+  if (availability < 40) return "부족"
+  if (availability >= 100) return "잉여"
+  return "적정"
+}
+
+function badgeVariantForBalance(label: BalanceLabel): "default" | "secondary" | "destructive" | "outline" {
+  if (label === "부족") return "destructive"
+  if (label === "잉여") return "secondary"
+  return "outline"
+}
+
+function AvailabilityGauge({
+  label,
+  availability,
+  color,
+  className,
+  onClick,
+}: {
+  label: string
+  availability: number
+  color: string
+  className?: string
+  onClick?: () => void
+}) {
+  const pct = Math.round(availability)
+  const ringPct = clamp(pct, 0, 100)
+  const balance = balanceLabelForAvailability(pct)
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "group w-full text-left rounded-xl border border-border bg-card/50 hover:bg-card transition-colors p-3",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+        className
+      )}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <div className="text-sm font-medium text-foreground truncate">{label}</div>
+            <Badge variant={badgeVariantForBalance(balance)} className="text-[11px] px-2">
+              {balance}
+            </Badge>
+          </div>
+          <div className="text-xs text-muted-foreground mt-1">
+            가용률 <span className="text-foreground font-medium">{pct}%</span>
+            {pct >= 100 ? " (잉여)" : pct < 40 ? " (부족)" : ""}
+          </div>
+        </div>
+
+        <div className="relative shrink-0">
+          <div
+            className={cn("h-12 w-12 rounded-full p-[3px]", pct > 100 ? "shadow-[0_0_0_1px_rgba(34,197,94,0.25)]" : "")}
+            style={{
+              background: `conic-gradient(${color} ${ringPct * 3.6}deg, rgba(148,163,184,0.25) 0deg)`,
+            }}
+          >
+            <div className="h-full w-full rounded-full bg-background flex items-center justify-center">
+              <div className="text-xs font-semibold text-foreground tabular-nums">{pct}%</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </button>
+  )
+}
+
+function ReallocationRecommendation({
+  model,
+  items,
+  className,
+}: {
+  model: InventoryItem
+  items: Array<{ type: string; availability: number; delta: number }>
+  className?: string
+}) {
+  const sorted = [...items].sort((a, b) => a.availability - b.availability)
+  const worst = sorted[0]
+  const best = sorted[sorted.length - 1]
+
+  // 왼쪽 "가용성 다이얼" 기준과 동일하게: <90 부족, >110 잉여, 그 외 적정
+  const shortageItems = useMemo(() => {
+    return [...items]
+      .filter((x) => balanceLabelForAvailability(Math.round(x.availability)) === "부족")
+      .sort((a, b) => a.availability - b.availability)
+  }, [items])
+
+  const excessItems = useMemo(() => {
+    return [...items]
+      .filter((x) => balanceLabelForAvailability(Math.round(x.availability)) === "잉여")
+      .sort((a, b) => b.availability - a.availability)
+  }, [items])
+
+  const primaryShortage = shortageItems[0] ?? worst
+  const primaryExcess = excessItems[0] ?? best
+
+  const worstPct = Math.round(primaryShortage.availability)
+  const bestPct = Math.round(primaryExcess.availability)
+
+  return (
+    <div className={cn("rounded-xl border border-border bg-gradient-to-br from-primary/5 to-transparent p-4", className)}>
+      <div className="flex items-start gap-3">
+        <div className="p-2 rounded-lg bg-primary/10">
+          <Sparkles className="w-5 h-5 text-primary" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-foreground">AI 기반 재고 전용(Reallocation) 추천</div>
+          <div className="text-xs text-muted-foreground mt-1">
+            모델 <span className="text-foreground font-medium">{model.name}</span>
+          </div>
+
+          <div className="mt-3 text-sm leading-6 text-foreground space-y-2">
+            <p>
+              <span className="font-semibold">{primaryShortage.type}</span> 패턴의 가용률이{" "}
+              <span className="font-semibold text-destructive">{worstPct}%</span>까지 급락했습니다. 이로 인해{" "}
+              <span className="font-semibold">완제품</span> 생산 차질이 우려됩니다.
+            </p>
+            <p>
+              <span className="font-semibold">조치 제안</span>: 잉여 재고(가용률{" "}
+              <span className="font-semibold text-success">{bestPct}%</span>)가 발생한{" "}
+              <span className="font-semibold">{primaryExcess.type}</span> 패턴 칩을 우선 투입하도록 생산 순서를 변경해
+              주십시오.
+            </p>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {shortageItems.map((x) => (
+              <Badge key={`short-${x.type}`} variant="outline" className="text-xs">
+                부족: {x.type} {Math.round(x.availability)}%
+              </Badge>
+            ))}
+            {excessItems.map((x) => (
+              <Badge key={`excess-${x.type}`} variant="outline" className="text-xs">
+                잉여: {x.type} {Math.round(x.availability)}%
+              </Badge>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function InventoryPage() {
-  const [searchTerm, setSearchTerm] = useState("")
-  const [categoryFilter, setCategoryFilter] = useState("all")
-  const [statusFilter, setStatusFilter] = useState("all")
+  const dramOnlyModel = useMemo(() => {
+    return (
+      inventoryData.find((x) => x.sku === "DRAM-HBM3-8GB") ??
+      inventoryData.find((x) => x.name.toLowerCase().includes("dram die") && x.name.toLowerCase().includes("hbm")) ??
+      inventoryData[0]
+    )
+  }, [])
 
   const [qualitySummary, setQualitySummary] = useState<{ total: number; normal: number; defect: number }>({
     total: DEFAULT_QUALITY_SUMMARY.total,
@@ -819,16 +872,34 @@ export default function InventoryPage() {
   const [qualityLoading, setQualityLoading] = useState(false)
   const [qualityError, setQualityError] = useState<string | null>(null)
 
-  const filteredInventory = useMemo(() => {
-    return inventoryData.filter((item) => {
-      const matchesSearch =
-        item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.sku.toLowerCase().includes(searchTerm.toLowerCase())
-      const matchesCategory = categoryFilter === "all" || item.category === categoryFilter
-      const matchesStatus = statusFilter === "all" || item.status === statusFilter
-      return matchesSearch && matchesCategory && matchesStatus
-    })
-  }, [searchTerm, categoryFilter, statusFilter])
+  const selectedModel = dramOnlyModel
+
+  const balanceByFailureType = useMemo(() => {
+    const model = selectedModel
+    const dist = failureTypeDistribution.filter((d) => d.type !== "None")
+
+    const maxCount = Math.max(0, ...dist.map((d) => d.count))
+    const stockRatio = model ? model.currentStock / Math.max(1, model.optimalStock) : 1
+
+    const statusAdj =
+      model?.status === "critical" ? -18 : model?.status === "low" ? -10 : model?.status === "excess" ? 10 : 0
+    const ratioAdj = clamp((stockRatio - 1) * 16, -12, 12)
+
+    return dist
+      .map((d) => {
+        const base = maxCount === 0 ? 100 : 130 - (d.count / maxCount) * 90 // 40~130
+        const availability = clamp(base + statusAdj + ratioAdj, 0, 140)
+        const delta = availability - 100
+        return {
+          type: d.type,
+          count: d.count,
+          color: d.color,
+          availability,
+          delta,
+        }
+      })
+      .sort((a, b) => a.availability - b.availability)
+  }, [failureTypeDistribution, selectedModel])
 
   const qualityStats = useMemo(() => {
     const defectRate = Math.round((qualitySummary.defect / qualitySummary.total) * 1000) / 10
@@ -853,12 +924,11 @@ export default function InventoryPage() {
       const defect = defectRows.length
       const normal = total - defect
 
-      // 불량패턴 분포: 요구된 9개만 집계/표시 (없으면 0)
-      // NOTE: failure_type은 정상 다이에도 들어올 수 있어, 전체 row 기준으로 카운트
+      // 불량패턴 분포: "불량 수량"과 합이 맞아야 하므로 defectRows 기준으로 카운트
+      // 요구사항: 아래 9개만 화면에 표시 → 그 외 패턴/알 수 없는 값은 None으로 흡수하여 합을 보존
       const counts = new Map<CanonicalFailureType, number>()
-      for (const r of rows) {
-        const t = normalizeFailureType(r.failure_type)
-        if (!t) continue // 요구된 9개 외는 무시 (표시하지 않음)
+      for (const r of defectRows) {
+        const t = normalizeFailureType(r.failure_type) ?? "None"
         counts.set(t, (counts.get(t) ?? 0) + 1)
       }
 
@@ -965,68 +1035,103 @@ export default function InventoryPage() {
         <BaseTypePenaltyPanel />
       </div>
 
-      {/* Inventory List */}
+      {/* Inventory Balance */}
       <Card>
         <CardHeader>
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
-              <CardTitle>칩 재고 목록</CardTitle>
-              <CardDescription>적층 공정용 칩 및 완제품 재고 현황</CardDescription>
+              <CardTitle>재고 밸런스</CardTitle>
+              <CardDescription>불량 패턴 비율 차이를 활용해 부족/잉여 병목을 한눈에 파악</CardDescription>
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <Badge variant="outline" className="text-xs">
+                모델 선택
+              </Badge>
+              <Select value={selectedModel.id} disabled>
+                <SelectTrigger className="w-full sm:w-[260px]">
+                  <SelectValue placeholder="칩 모델 선택" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={selectedModel.id}>
+                    {selectedModel.name}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </CardHeader>
-        <CardContent>
-          {/* Filters */}
-          <div className="flex flex-col sm:flex-row gap-4 mb-6">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                placeholder="품목명 또는 SKU 검색..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger className="w-[160px]">
-                <SelectValue placeholder="카테고리" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">전체 카테고리</SelectItem>
-                <SelectItem value="raw_die">원자재</SelectItem>
-                <SelectItem value="dram_die">DRAM Die</SelectItem>
-                <SelectItem value="logic_die">Logic Die</SelectItem>
-                <SelectItem value="hbm_stack">HBM 스택</SelectItem>
-                <SelectItem value="finished">완제품</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[140px]">
-                <SelectValue placeholder="상태" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">전체 상태</SelectItem>
-                <SelectItem value="optimal">적정</SelectItem>
-                <SelectItem value="low">부족</SelectItem>
-                <SelectItem value="critical">긴급</SelectItem>
-                <SelectItem value="excess">과잉</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Inventory Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {filteredInventory.map((item) => (
-              <InventoryCard key={item.id} item={item} />
-            ))}
-          </div>
-
-          {filteredInventory.length === 0 && (
-            <div className="text-center py-12 text-muted-foreground">
-              <Package className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>검색 조건에 맞는 품목이 없습니다.</p>
+        <CardContent className="space-y-4">
+          {qualityError && (
+            <div className="text-xs text-muted-foreground">
+              <Badge variant="outline" className="mr-2">
+                API
+              </Badge>
+              {qualityError} (데모 지표로 표시 중)
             </div>
           )}
+
+          {/* 1) Availability Gauge */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="rounded-xl border border-border bg-card/50 p-4 lg:col-span-2">
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <div className="text-sm font-medium text-foreground flex items-center gap-2">
+                  <div className="p-2 rounded-lg bg-muted">
+                    <Layers className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                  패턴별 가용성 다이얼
+                </div>
+                <div className="flex items-center gap-2">
+                  {qualityLoading && (
+                    <Badge variant="outline" className="text-xs">
+                      분석 중...
+                    </Badge>
+                  )}
+                  <Button size="sm" variant="outline" onClick={() => void loadQualityData()} disabled={qualityLoading}>
+                    {qualityLoading ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                        분석 중...
+                      </>
+                    ) : (
+                      <>
+                        <Brain className="w-4 h-4 mr-2" />
+                        갱신
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
+                {balanceByFailureType.slice(0, 8).map((x) => (
+                  <AvailabilityGauge
+                    key={x.type}
+                    label={x.type}
+                    availability={x.availability}
+                    color={x.color}
+                  />
+                ))}
+              </div>
+
+              <div className="mt-3 text-xs text-muted-foreground">
+                * 기준: 40% 미만이면 부족(병목), 100% 이상이면 잉여로 해석합니다.
+              </div>
+            </div>
+
+            {/* 3) AI Reallocation Recommendation */}
+            {selectedModel ? (
+              <ReallocationRecommendation
+                model={selectedModel}
+                items={balanceByFailureType.map((x) => ({ type: x.type, availability: x.availability, delta: x.delta }))}
+              />
+            ) : (
+              <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+                모델을 선택하면 AI 추천 문구를 표시합니다.
+              </div>
+            )}
+          </div>
+
         </CardContent>
       </Card>
     </div>
