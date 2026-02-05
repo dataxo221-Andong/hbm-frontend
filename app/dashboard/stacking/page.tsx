@@ -40,6 +40,7 @@ interface StackLayer {
   clusterLabel?: number
   dieStatus?: number // 1: Normal, 2: Defect
   tsvMatrix?: number[][]
+  createdAt?: string
 }
 
 // Generate demo HBM stack data
@@ -548,34 +549,10 @@ const LayerDetailPanel = memo(function LayerDetailPanel({ layer }: { layer: Stac
           </div>
         </div>
 
-        <div>
-          <div className="flex justify-between text-sm mb-1">
-            <span className="text-muted-foreground">수율</span>
-            <span className="font-medium text-foreground">{layer.yield.toFixed(1)}%</span>
-          </div>
-          <Progress value={layer.yield} className="h-2" />
-        </div>
-
-        <div>
-          <div className="flex justify-between text-sm mb-1">
-            <span className="text-muted-foreground">TSV 정렬도</span>
-            <span className="font-medium text-foreground">{layer.tsvAlignment.toFixed(1)}%</span>
-          </div>
-          <Progress value={layer.tsvAlignment} className="h-2" />
-        </div>
-
-        <div>
-          <div className="flex justify-between text-sm mb-1">
-            <span className="text-muted-foreground">본딩 품질</span>
-            <span className="font-medium text-foreground">{layer.bondingQuality.toFixed(1)}%</span>
-          </div>
-          <Progress value={layer.bondingQuality} className="h-2" />
-        </div>
-
         <div className="pt-2 border-t border-border">
           <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">공정 온도</span>
-            <span className="font-medium text-foreground">{layer.temperature.toFixed(1)}°C</span>
+            <span className="text-muted-foreground">생성 일시</span>
+            <span className="font-medium text-foreground tracking-tight">{layer.createdAt || 'N/A'}</span>
           </div>
         </div>
       </div>
@@ -671,6 +648,7 @@ interface BackendLayer {
   die_status?: number
   tsv_matrix?: number[][]
   chip_yield?: number
+  created_at?: string
 }
 
 interface BackendStack {
@@ -736,7 +714,8 @@ export default function StackingVisualizationPage() {
         failureType: bl.failure_type,
         clusterLabel: bl.cluster_label,
         dieStatus: bl.die_status,
-        tsvMatrix: bl.tsv_matrix
+        tsvMatrix: bl.tsv_matrix,
+        createdAt: bl.created_at
       }
     })
   }, [])
