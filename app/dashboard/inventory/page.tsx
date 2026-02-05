@@ -256,9 +256,18 @@ function riskLabel(risk: CombinationRisk): string {
 // 적층 조합(base type) 패널티 (낮을수록 좋은 조합)
 // 스크린샷 기반 값 그대로 반영
 const BASE_TYPE_PENALTY: Array<{ a: CanonicalFailureType; b: CanonicalFailureType; penalty: number }> = [
+  // 동일 패턴끼리의 페널티 상향 (Diversity Enforcement)
   { a: "Center", b: "Center", penalty: 1.0 },
-  { a: "Donut", b: "Donut", penalty: 0.85 },
-  { a: "Edge-Ring", b: "Edge-Ring", penalty: 0.8 },
+  { a: "Donut", b: "Donut", penalty: 2.0 },
+  { a: "Edge-Ring", b: "Edge-Ring", penalty: 2.0 },
+  { a: "Loc", b: "Loc", penalty: 2.0 },
+  { a: "Edge-Loc", b: "Edge-Loc", penalty: 2.0 },
+  { a: "Scratch", b: "Scratch", penalty: 2.0 },
+  { a: "Random", b: "Random", penalty: 2.0 },
+  { a: "Near-full", b: "Near-full", penalty: 3.0 },
+  { a: "None", b: "None", penalty: 0.15 },
+
+  // 서로 다른 조합 (권장)
   { a: "Donut", b: "Center", penalty: 0.7 },
   { a: "Center", b: "Edge-Ring", penalty: 0.55 },
   { a: "Donut", b: "Edge-Ring", penalty: 0.6 },
@@ -268,24 +277,18 @@ const BASE_TYPE_PENALTY: Array<{ a: CanonicalFailureType; b: CanonicalFailureTyp
   { a: "Donut", b: "Loc", penalty: 0.4 },
   { a: "Donut", b: "Edge-Loc", penalty: 0.4 },
   { a: "Donut", b: "Scratch", penalty: 0.35 },
-  { a: "Edge-Ring", b: "Loc", penalty: 0.35 },
-  { a: "Edge-Ring", b: "Edge-Loc", penalty: 0.35 },
-  { a: "Edge-Ring", b: "Scratch", penalty: 0.3 },
-  { a: "Loc", b: "Loc", penalty: 0.3 },
-  { a: "Edge-Loc", b: "Edge-Loc", penalty: 0.3 },
-  { a: "Scratch", b: "Scratch", penalty: 0.25 },
+  { a: "Edge-Ring", b: "Loc", penalty: 0.45 },
+  { a: "Edge-Ring", b: "Edge-Loc", penalty: 0.4 },
+  { a: "Edge-Ring", b: "Scratch", penalty: 0.4 },
   { a: "Loc", b: "Edge-Loc", penalty: 0.28 },
   { a: "Loc", b: "Scratch", penalty: 0.25 },
   { a: "Edge-Loc", b: "Scratch", penalty: 0.25 },
-  { a: "Random", b: "Random", penalty: 0.15 },
   { a: "Random", b: "Loc", penalty: 0.18 },
   { a: "Random", b: "Edge-Loc", penalty: 0.18 },
   { a: "Random", b: "Scratch", penalty: 0.18 },
   { a: "Random", b: "Donut", penalty: 0.25 },
   { a: "Random", b: "Center", penalty: 0.25 },
   { a: "Random", b: "Edge-Ring", penalty: 0.25 },
-  { a: "Near-full", b: "Near-full", penalty: 0.2 },
-  { a: "None", b: "None", penalty: 0.1 },
 ]
 
 const statusConfig: Record<StockStatus, { label: string; color: string; bgColor: string }> = {
@@ -600,7 +603,7 @@ function BaseTypePenaltyPanel() {
             </div>
             <div>
               <CardTitle className="text-base">적층 조합 패널티</CardTitle>
-              <CardDescription>낮을수록 추천 조합 (0.1 ~ 1.0)</CardDescription>
+              <CardDescription>낮을수록 추천 조합</CardDescription>
             </div>
           </div>
           <div className="flex items-center gap-1">
@@ -628,7 +631,7 @@ function BaseTypePenaltyPanel() {
               0.4 ~ 0.7 주의 필요
             </Badge>
             <Badge variant="outline" className={cn("text-xs", riskBadgeClass("danger"))}>
-              0.8 ~ 1.0 위험
+              0.8 이상 위험
             </Badge>
           </div>
 

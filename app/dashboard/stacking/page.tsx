@@ -652,7 +652,7 @@ const StackQualityGrade = memo(function StackQualityGrade({
           </div>
 
           <div className="pt-2 border-t border-border flex items-center justify-between">
-            <span className="text-muted-foreground">종합 적층 수율</span>
+            <span className="text-muted-foreground">적층 케이스 수율</span>
             <span className="font-bold text-foreground">{totalYield.toFixed(2)}%</span>
           </div>
         </div>
