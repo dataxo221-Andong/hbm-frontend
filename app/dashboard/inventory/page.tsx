@@ -753,7 +753,7 @@ function AvailabilityGauge({
             </Badge>
           </div>
           <div className="text-xs text-muted-foreground mt-1">
-            가용률 <span className="text-foreground font-medium">{pct}%</span>
+            재고율 <span className="text-foreground font-medium">{pct}%</span>
             {pct >= 100 ? " (잉여)" : pct < 40 ? " (부족)" : ""}
           </div>
         </div>
@@ -788,7 +788,7 @@ function ReallocationRecommendation({
   const worst = sorted[0]
   const best = sorted[sorted.length - 1]
 
-  // 왼쪽 "가용성 다이얼" 기준과 동일하게: <90 부족, >110 잉여, 그 외 적정
+  // 왼쪽 "재고율 다이얼" 기준과 동일하게: 부족/잉여/적정 라벨
   const shortageItems = useMemo(() => {
     return [...items]
       .filter((x) => balanceLabelForAvailability(Math.round(x.availability)) === "부족")
@@ -821,12 +821,12 @@ function ReallocationRecommendation({
 
           <div className="mt-3 text-sm leading-6 text-foreground space-y-2">
             <p>
-              <span className="font-semibold">{primaryShortage.type}</span> 패턴의 가용률이{" "}
+              <span className="font-semibold">{primaryShortage.type}</span> 패턴의 재고율이{" "}
               <span className="font-semibold text-destructive">{worstPct}%</span>까지 급락했습니다. 이로 인해{" "}
               <span className="font-semibold">완제품</span> 생산 차질이 우려됩니다.
             </p>
             <p>
-              <span className="font-semibold">조치 제안</span>: 잉여 재고(가용률{" "}
+              <span className="font-semibold">조치 제안</span>: 잉여 재고(재고율{" "}
               <span className="font-semibold text-success">{bestPct}%</span>)가 발생한{" "}
               <span className="font-semibold">{primaryExcess.type}</span> 패턴 칩을 우선 투입하도록 생산 순서를 변경해
               주십시오.
@@ -1079,7 +1079,7 @@ export default function InventoryPage() {
                   <div className="p-2 rounded-lg bg-muted">
                     <Layers className="w-4 h-4 text-muted-foreground" />
                   </div>
-                  패턴별 가용성 다이얼
+                  패턴별 재고율 다이얼
                 </div>
                 <div className="flex items-center gap-2">
                   {qualityLoading && (
@@ -1115,7 +1115,7 @@ export default function InventoryPage() {
               </div>
 
               <div className="mt-3 text-xs text-muted-foreground">
-                * 기준: 40% 미만이면 부족(병목), 100% 이상이면 잉여로 해석합니다.
+                * 100%가 기준입니다. 40% 미만이면 부족(병목), 100% 이상이면 잉여로 해석합니다.
               </div>
             </div>
 
