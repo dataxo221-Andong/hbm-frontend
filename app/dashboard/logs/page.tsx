@@ -13,11 +13,11 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { 
-  Search, 
-  Download, 
-  Filter, 
-  TrendingUp, 
+import {
+  Search,
+  Download,
+  Filter,
+  TrendingUp,
   TrendingDown,
   Calendar,
   RefreshCw,
@@ -51,14 +51,14 @@ function generateLogData(count: number) {
   const logs = []
   const statuses = ["completed", "failed", "processing"] as const
   const grades = ["A+", "A", "B+", "B", "C", "F"] as const
-  
+
   for (let i = 0; i < count; i++) {
     const date = new Date()
     date.setHours(date.getHours() - i * 2)
-    
+
     const status = Math.random() > 0.1 ? "completed" : Math.random() > 0.5 ? "failed" : "processing"
     const yieldValue = status === "completed" ? 88 + Math.random() * 10 : null
-    
+
     logs.push({
       id: `HBM-${String(10000 - i).padStart(5, "0")}`,
       timestamp: date.toISOString(),
@@ -73,7 +73,7 @@ function generateLogData(count: number) {
       defects: status === "completed" ? Math.floor(Math.random() * 5) : null
     })
   }
-  
+
   return logs
 }
 
@@ -110,13 +110,13 @@ const productionVolume = [
   { date: "01/21", hbm3: 152, hbm3e: 118 },
 ]
 
-function StatCard({ 
-  title, 
-  value, 
-  change, 
+function StatCard({
+  title,
+  value,
+  change,
   trend,
   icon: Icon
-}: { 
+}: {
   title: string
   value: string
   change: string
@@ -174,13 +174,13 @@ function LogTable({ logs }: { logs: ReturnType<typeof generateLogData> }) {
             <tr key={log.id} className="border-b border-border/50 hover:bg-muted/50 transition-colors">
               <td className="py-3 px-4 text-sm font-mono text-foreground">{log.id}</td>
               <td className="py-3 px-4 text-sm text-muted-foreground">
-                {mounted 
+                {mounted
                   ? new Date(log.timestamp).toLocaleString("ko-KR", {
-                      month: "2-digit",
-                      day: "2-digit",
-                      hour: "2-digit",
-                      minute: "2-digit"
-                    })
+                    month: "2-digit",
+                    day: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit"
+                  })
                   : log.timestamp.split('T')[0] // 서버에서는 날짜만 표시
                 }
               </td>
@@ -205,8 +205,8 @@ function LogTable({ logs }: { logs: ReturnType<typeof generateLogData> }) {
               </td>
               <td className="py-3 px-4">
                 {log.grade && (
-                  <Badge 
-                    variant="outline" 
+                  <Badge
+                    variant="outline"
                     className={cn(
                       "text-xs font-bold",
                       log.grade.startsWith("A") && "border-success text-success",
@@ -385,26 +385,26 @@ export default function HBMLogsPage() {
                     <AreaChart data={yieldTrendData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="legacyGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3}/>
-                          <stop offset="95%" stopColor="#ef4444" stopOpacity={0.05}/>
+                          <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#ef4444" stopOpacity={0.05} />
                         </linearGradient>
                         <linearGradient id="yieldGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4}/>
-                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.1}/>
+                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4} />
+                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.1} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                      <XAxis 
-                        dataKey="date" 
+                      <XAxis
+                        dataKey="date"
                         stroke="#9ca3af"
                         fontSize={12}
                       />
-                      <YAxis 
-                        domain={[88, 98]} 
+                      <YAxis
+                        domain={[88, 98]}
                         stroke="#9ca3af"
                         fontSize={12}
                       />
-                      <Tooltip 
+                      <Tooltip
                         contentStyle={{
                           backgroundColor: "#1f2937",
                           border: "1px solid #374151",
@@ -452,16 +452,16 @@ export default function HBMLogsPage() {
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={productionVolume} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                      <XAxis 
-                        dataKey="date" 
+                      <XAxis
+                        dataKey="date"
                         stroke="#9ca3af"
                         fontSize={12}
                       />
-                      <YAxis 
+                      <YAxis
                         stroke="#9ca3af"
                         fontSize={12}
                       />
-                      <Tooltip 
+                      <Tooltip
                         contentStyle={{
                           backgroundColor: "#1f2937",
                           border: "1px solid #374151",
@@ -507,7 +507,7 @@ export default function HBMLogsPage() {
                           <Cell key={`cell-${index}`} fill={entry.color} />
                         ))}
                       </Pie>
-                      <Tooltip 
+                      <Tooltip
                         contentStyle={{
                           backgroundColor: "#1f2937",
                           border: "1px solid #374151",
