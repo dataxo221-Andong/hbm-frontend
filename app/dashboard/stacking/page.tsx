@@ -101,6 +101,20 @@ const getStatusFromFailure = (failureType: string): LayerStatus => {
   return 'defect';
 }
 
+// TSV matrix → 좌표/요약 문자열 (0=정상, 1=불량)
+function formatTsvCoords(matrix: number[][] | undefined): string {
+  if (!matrix?.length) return 'N/A'
+  const coords: string[] = []
+  matrix.forEach((row, r) => {
+    row.forEach((val, c) => {
+      if (val !== 0) coords.push(`(${r},${c})`)
+    })
+  })
+  const size = `${matrix.length}×${matrix[0]?.length ?? 0}`
+  if (coords.length === 0) return size
+  return coords.length > 5 ? `${size} (불량 ${coords.length}개)` : `${size} ${coords.join(', ')}`
+}
+
 function createSeededRandom(seed: number) {
   let t = seed
   return () => {
@@ -544,13 +558,6 @@ const LayerDetailPanel = memo(function LayerDetailPanel({ layer }: { layer: Stac
             <span className="font-medium">{layer.failureType || 'None'}</span>
           </div>
           <div className="flex justify-between py-1 pt-2">
-            <span className="text-muted-foreground">칩 수율</span>
-            <span className="font-medium">{layer.yield.toFixed(2)}%</span>
-          </div>
-        </div>
-
-        <div className="pt-2 border-t border-border">
-          <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">생성 일시</span>
             <span className="font-medium text-foreground tracking-tight">{layer.createdAt || 'N/A'}</span>
           </div>
@@ -913,10 +920,11 @@ export default function StackingVisualizationPage() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* 3D Visualization */}
-        <div className="lg:col-span-3">
-          <Card>
-            <CardHeader className="pb-2">
+        {/* 1행: 3D 바닥과 레이어 상세 바닥 맞춤 (flex로 높이 통일, 3D 콘텐츠 520px+헤더 기준) */}
+        <div className="lg:col-span-4 flex flex-col lg:flex-row gap-6 items-stretch lg:min-h-[600px]">
+          <div className="lg:flex-[3] min-w-0 flex flex-col">
+          <Card className="flex-1 min-h-0 flex flex-col">
+            <CardHeader className="pb-2 shrink-0">
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>3D 스택 뷰</CardTitle>
@@ -1015,38 +1023,38 @@ export default function StackingVisualizationPage() {
               </div>
             </CardContent>
           </Card>
-        </div>
-
-        {/* Side Panel */}
-        <div className="space-y-6 lg:col-span-1">
-          {/* Details Panel */}
-          <div>
-            <StackQualityGrade
-              layers={layers}
-              grade={currentStackInfo?.final_grade}
-              totalYield={currentStackInfo?.final_yield}
-            />
-            <div className="mt-6">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">레이어 상세</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {selectedLayerData ? (
-                    <LayerDetailPanel layer={selectedLayerData} />
-                  ) : (
-                    <div className="text-center py-8 text-muted-foreground">
-                      <Info className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                      <p className="text-sm">레이어를 클릭하여</p>
-                      <p className="text-sm">상세 정보를 확인하세요</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
           </div>
 
-          {/* Layer List */}
+          {/* Side Panel - 3D와 같은 높이, 레이어 상세가 남는 공간 채움 */}
+          <div className="lg:flex-1 flex flex-col gap-6 min-h-0 min-w-0">
+            <div className="shrink-0">
+              <StackQualityGrade
+                layers={layers}
+                grade={currentStackInfo?.final_grade}
+                totalYield={currentStackInfo?.final_yield}
+              />
+            </div>
+            <Card className="flex-1 min-h-0 flex flex-col">
+              <CardHeader className="pb-2 shrink-0">
+                <CardTitle className="text-base">레이어 상세</CardTitle>
+              </CardHeader>
+              <CardContent className="overflow-y-auto min-h-0">
+                {selectedLayerData ? (
+                  <LayerDetailPanel layer={selectedLayerData} />
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Info className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">레이어를 클릭하여</p>
+                    <p className="text-sm">상세 정보를 확인하세요</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        {/* 레이어별 상세 정보 - 그림판처럼 하단 전체 너비 */}
+        <div className="lg:col-span-4">
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -1076,11 +1084,10 @@ export default function StackingVisualizationPage() {
                       <tr className="border-b border-border">
                         <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">레이어</th>
                         <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Chip ID</th>
-                        <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">타입</th>
                         <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">상태</th>
                         <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">불량유형</th>
-                        <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">수율</th>
-                        <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">온도</th>
+                        <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">TSV 좌표</th>
+                        <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Created At</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1095,11 +1102,6 @@ export default function StackingVisualizationPage() {
                         >
                           <td className="py-3 px-4 text-sm font-medium text-foreground">{layer.name}</td>
                           <td className="py-3 px-4 text-sm text-muted-foreground font-mono">{layer.chipId || layer.chipUid.substring(0, 12) + "..."}</td>
-                          <td className="py-3 px-4">
-                            <Badge variant="outline" className="text-xs">
-                              {layer.type}
-                            </Badge>
-                          </td>
                           <td className="py-3 px-4">
                             <Badge
                               variant="outline"
@@ -1118,13 +1120,13 @@ export default function StackingVisualizationPage() {
                             </Badge>
                           </td>
                           <td className="py-3 px-4 text-sm text-muted-foreground">{layer.failureType || "N/A"}</td>
-                          <td className="py-3 px-4 text-sm text-muted-foreground">{layer.yield.toFixed(1)}%</td>
-                          <td className="py-3 px-4 text-sm text-muted-foreground">{layer.temperature.toFixed(1)}°C</td>
+                          <td className="py-3 px-4 text-sm text-muted-foreground font-mono">{formatTsvCoords(layer.tsvMatrix)}</td>
+                          <td className="py-3 px-4 text-sm text-muted-foreground">{layer.createdAt || 'N/A'}</td>
                         </tr>
                       ))}
                       {layers.length === 0 && (
                         <tr>
-                          <td colSpan={7} className="text-center py-4 text-muted-foreground">데이터가 없습니다.</td>
+                          <td colSpan={6} className="text-center py-4 text-muted-foreground">데이터가 없습니다.</td>
                         </tr>
                       )}
                     </tbody>
