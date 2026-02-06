@@ -192,7 +192,7 @@ export function ChatBot({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
                       : "bg-muted text-foreground"
                   )}
                 >
-                  <div className="whitespace-pre-wrap prose prose-sm max-w-none dark:prose-invert">
+                  <div className="whitespace-pre-wrap prose prose-sm max-w-none dark:prose-invert prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-headings:my-2 prose-h2:my-2 prose-h3:my-2">
                     <ReactMarkdown>{message.content}</ReactMarkdown>
                   </div>
                   <span className="text-xs opacity-60 mt-1 block">
