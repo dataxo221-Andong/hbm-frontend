@@ -6,6 +6,7 @@ import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { X, Send, Bot, User, Loader2, Cpu } from "lucide-react"
+import ReactMarkdown from 'react-markdown'
 import { cn } from "@/lib/utils"
 
 interface Message {
@@ -191,7 +192,9 @@ export function ChatBot({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
                       : "bg-muted text-foreground"
                   )}
                 >
-                  <p className="whitespace-pre-wrap">{message.content}</p>
+                  <div className="whitespace-pre-wrap prose prose-sm max-w-none dark:prose-invert">
+                    <ReactMarkdown>{message.content}</ReactMarkdown>
+                  </div>
                   <span className="text-xs opacity-60 mt-1 block">
                     {message.timestamp.toLocaleTimeString("ko-KR", {
                       hour: "2-digit",
