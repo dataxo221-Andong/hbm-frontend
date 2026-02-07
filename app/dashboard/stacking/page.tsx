@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
   RotateCcw,
   ChevronUp,
@@ -683,6 +684,10 @@ export default function StackingVisualizationPage() {
   const [historyItems, setHistoryItems] = useState<{ tsv_num: number; created_at: string; stack_count: number }[]>([])
   const [selectedHistory, setSelectedHistory] = useState<string>("")
 
+  // Progress bar popup (최신 PKL 분석)
+  const [showProgressPopup, setShowProgressPopup] = useState(false)
+  const [progressPercent, setProgressPercent] = useState(0)
+
   // API 데이터 -> 프론트엔드 StackLayer 매핑
   const mapBackendLayersToState = useCallback((backendLayers: BackendLayer[]): StackLayer[] => {
     // 역순 정렬 (1번이 바닥, N번이 위쪽이라면 프론트 시각화 순서에 맞춤)
@@ -795,48 +800,68 @@ export default function StackingVisualizationPage() {
     }
   }
 
-  // 최신 PKL 분석 요청
+  // 최신 PKL 분석 요청 (SSE 스트리밍으로 실시간 진행률)
   const handleAnalyzeLatest = async () => {
     setIsLoading(true)
     setApiError(null)
-    setStackIndex(0) // Reset to first stack
+    setStackIndex(0)
+    setShowProgressPopup(true)
+    setProgressPercent(0)
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
-      const res = await fetch(`${apiUrl}/stack/analyze`, {
+      const res = await fetch(`${apiUrl}/stack/analyze/stream`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ batch_id: null }), // null일 경우 최신 파일 자동 탐색
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ batch_id: null }),
       })
 
-      if (!res.ok) {
-        throw new Error(`Server responded with ${res.status}`)
+      if (!res.ok) throw new Error(`Server responded with ${res.status}`)
+      if (!res.body) throw new Error('No response body')
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n\n')
+        buffer = lines.pop() || ''
+        for (const block of lines) {
+          const match = block.match(/^data:\s*(\{.*\})/m)
+          if (match) {
+            try {
+              const ev = JSON.parse(match[1])
+              if (typeof ev.percent === 'number') {
+                setProgressPercent(ev.percent)
+              }
+              if (ev.result) {
+                const data = ev.result
+                if (data.error) throw new Error(data.error)
+                if (data.stacks && Array.isArray(data.stacks) && data.stacks.length > 0) {
+                  setAllStacks(data.stacks)
+                  const firstStack = data.stacks[0]
+                  setLayers(mapBackendLayersToState(firstStack.layers))
+                } else {
+                  setAllStacks([])
+                  setApiError("생성된 스택이 없습니다. 데이터가 부족하거나 조건에 맞는 칩이 없습니다.")
+                }
+              }
+            } catch (e) {
+              if (e instanceof SyntaxError) continue
+              throw e
+            }
+          }
+        }
       }
-
-      const data = await res.json()
-
-      if (data.error) {
-        throw new Error(data.error)
-      }
-
-      if (data.stacks && Array.isArray(data.stacks) && data.stacks.length > 0) {
-        setAllStacks(data.stacks)
-        console.log(`Loaded ${data.stacks.length} stacks`)
-
-        // 첫 번째 스택 표시
-        const firstStack = data.stacks[0]
-        setLayers(mapBackendLayersToState(firstStack.layers))
-      } else {
-        setAllStacks([])
-        setApiError("생성된 스택이 없습니다. 데이터가 부족하거나 조건에 맞는 칩이 없습니다.")
-      }
-
+      setProgressPercent(100)
     } catch (err: any) {
       console.error(err)
       setApiError(err.message || "Failed to fetch simulation data")
     } finally {
+      setTimeout(() => setShowProgressPopup(false), 500)
       setIsLoading(false)
     }
   }
@@ -911,6 +936,21 @@ export default function StackingVisualizationPage() {
           </Button>
         </div>
       </div>
+
+      {/* 최신 PKL 분석 진행률 팝업 */}
+      <Dialog open={showProgressPopup} onOpenChange={() => {}}>
+        <DialogContent showCloseButton={false} className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>최신 PKL 분석</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <Progress value={progressPercent} className="h-3" />
+            <p className="text-center text-sm text-muted-foreground">
+              {progressPercent.toFixed(2)}%
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {apiError && (
         <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-md flex items-center gap-2">
