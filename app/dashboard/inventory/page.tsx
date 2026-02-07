@@ -13,7 +13,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   Brain,
-  RefreshCw,
   Boxes,
   Sparkles,
   Layers,
@@ -291,23 +290,22 @@ function AIQualityPanel({
   failureTypeDistribution,
   isLoading,
   error,
-  onReanalyze,
   className,
 }: {
   qualitySummary: { total: number; normal: number; defect: number }
   failureTypeDistribution: Array<{ type: string; count: number; color: string }>
   isLoading: boolean
   error: string | null
-  onReanalyze: () => void
   className?: string
 }) {
-  const defectRate = Math.round((qualitySummary.defect / qualitySummary.total) * 1000) / 10
+  const defectRate =
+    qualitySummary.total > 0 ? Math.round((qualitySummary.defect / qualitySummary.total) * 1000) / 10 : 0
   const topFailure =
     failureTypeDistribution.length > 0
       ? failureTypeDistribution.reduce(
-        (best, cur) => (cur.count > best.count ? cur : best),
-        failureTypeDistribution[0]
-      )
+          (best, cur) => (cur.count > best.count ? cur : best),
+          failureTypeDistribution[0]
+        )
       : null
 
   return (
@@ -319,30 +317,15 @@ function AIQualityPanel({
               <Brain className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <CardTitle className="text-base">AI 재고 분석</CardTitle>
+              <CardTitle className="text-base">불량유형별 재고분석</CardTitle>
               <CardDescription>정상/불량 및 불량유형 기반 현황 분석</CardDescription>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {isLoading && (
-              <Badge variant="outline" className="text-xs">
-                분석 중...
-              </Badge>
-            )}
-            <Button size="sm" onClick={onReanalyze} disabled={isLoading}>
-              {isLoading ? (
-                <>
-                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                  분석 중...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4 mr-2" />
-                  재분석
-                </>
-              )}
-            </Button>
-          </div>
+          {isLoading && (
+            <Badge variant="outline" className="text-xs">
+              분석 중...
+            </Badge>
+          )}
         </div>
       </CardHeader>
       <CardContent className="flex-1 min-h-0">
@@ -966,55 +949,48 @@ export default function InventoryPage() {
   return (
     <div className="space-y-6">
       {/* Summary Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <Card>
-          <CardContent className="p-4">
+          <CardContent className="p-4 lg:p-5">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-muted">
                 <Boxes className="w-5 h-5 text-muted-foreground" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">전체 수량</p>
-                <p className="text-2xl font-bold text-foreground">{qualityStats.total.toLocaleString()}</p>
+                <p className="text-xs lg:text-sm text-muted-foreground">전체 수량</p>
+                <p className="text-2xl lg:text-3xl font-bold text-foreground tracking-tight">
+                  {qualityStats.total.toLocaleString()}
+                </p>
               </div>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
+          <CardContent className="p-4 lg:p-5">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-success/10">
                 <CheckCircle2 className="w-5 h-5 text-success" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">정상 수량</p>
-                <p className="text-2xl font-bold text-success">{qualityStats.normal.toLocaleString()}</p>
+                <p className="text-xs lg:text-sm text-muted-foreground">정상 수량</p>
+                <p className="text-2xl lg:text-3xl font-bold text-success tracking-tight">
+                  {qualityStats.normal.toLocaleString()}
+                </p>
               </div>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
+          <CardContent className="p-4 lg:p-5">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-destructive/10">
                 <AlertTriangle className="w-5 h-5 text-destructive" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">불량 수량</p>
-                <p className="text-2xl font-bold text-destructive">{qualityStats.defect.toLocaleString()}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-warning/10">
-                <Brain className="w-5 h-5 text-warning" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">불량률</p>
-                <p className="text-2xl font-bold text-warning">{qualityStats.defectRate}%</p>
+                <p className="text-xs lg:text-sm text-muted-foreground">불량 수량</p>
+                <p className="text-2xl lg:text-3xl font-bold text-destructive tracking-tight">
+                  {qualityStats.defect.toLocaleString()}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -1028,7 +1004,6 @@ export default function InventoryPage() {
           failureTypeDistribution={failureTypeDistribution}
           isLoading={qualityLoading}
           error={qualityError}
-          onReanalyze={() => void loadQualityData()}
         />
 
         {/* Base-type penalty (오른쪽) */}
@@ -1040,7 +1015,7 @@ export default function InventoryPage() {
         <CardHeader>
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
-              <CardTitle>재고 밸런스</CardTitle>
+              <CardTitle>불량유형별 재고밸런스</CardTitle>
               <CardDescription>불량 패턴 비율 차이를 활용해 부족/잉여 병목을 한눈에 파악</CardDescription>
             </div>
 
@@ -1081,26 +1056,11 @@ export default function InventoryPage() {
                   </div>
                   패턴별 재고율 다이얼
                 </div>
-                <div className="flex items-center gap-2">
-                  {qualityLoading && (
-                    <Badge variant="outline" className="text-xs">
-                      분석 중...
-                    </Badge>
-                  )}
-                  <Button size="sm" variant="outline" onClick={() => void loadQualityData()} disabled={qualityLoading}>
-                    {qualityLoading ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                        분석 중...
-                      </>
-                    ) : (
-                      <>
-                        <Brain className="w-4 h-4 mr-2" />
-                        갱신
-                      </>
-                    )}
-                  </Button>
-                </div>
+                {qualityLoading && (
+                  <Badge variant="outline" className="text-xs">
+                    분석 중...
+                  </Badge>
+                )}
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
