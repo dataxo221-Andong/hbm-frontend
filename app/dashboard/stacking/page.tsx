@@ -732,10 +732,27 @@ export default function StackingVisualizationPage() {
     })
   }, [])
 
+  // 매핑 로직 의존성을 제거하거나 mapBackendLayersToState를 의존성에 추가
+
   // 초기 더미 데이터 로드 및 히스토리 조회
   useEffect(() => {
     // setLayers(generateStackLayers(STACK_LAYERS)) // Demo removed
-    fetchHistory()
+    const init = async () => {
+      const history = await fetchHistory()
+
+      // URL 쿼리 파라미터 확인 (batchId)
+      const params = new URLSearchParams(window.location.search)
+      const batchId = params.get('batchId')
+
+      if (batchId) {
+        // 쿼리에 batchId가 있으면 해당 배치 선택
+        handleHistorySelect(batchId)
+      } else if (history && history.length > 0) {
+        // 없으면 가장 최신(첫 번째) 배치 선택
+        handleHistorySelect(String(history[0].tsv_num))
+      }
+    }
+    init()
   }, [])
 
   // Stack 인덱스 변경 시 레이어 데이터 자동 동기화
@@ -746,6 +763,7 @@ export default function StackingVisualizationPage() {
     }
   }, [stackIndex, allStacks, mapBackendLayersToState])
 
+
   const fetchHistory = async () => {
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
@@ -754,17 +772,16 @@ export default function StackingVisualizationPage() {
         const data = await res.json()
         setHistoryItems(data)
 
-        // Load latest history automatically
-        if (data && data.length > 0) {
-          handleHistorySelect(String(data[0].tsv_num))
-        } else {
-          // No history
+        // 데이터가 없으면 레이어 초기화
+        if (!data || data.length === 0) {
           setLayers([])
         }
+        return data // Return data for chaining
       }
     } catch (e) {
       console.error("Failed to fetch history:", e)
     }
+    return []
   }
 
   const handleHistorySelect = async (val: string) => {
@@ -938,7 +955,7 @@ export default function StackingVisualizationPage() {
       </div>
 
       {/* 최신 PKL 분석 진행률 팝업 */}
-      <Dialog open={showProgressPopup} onOpenChange={() => {}}>
+      <Dialog open={showProgressPopup} onOpenChange={() => { }}>
         <DialogContent showCloseButton={false} className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>최신 PKL 분석</DialogTitle>
@@ -963,106 +980,106 @@ export default function StackingVisualizationPage() {
         {/* 1행: 3D 바닥과 레이어 상세 바닥 맞춤 (flex로 높이 통일, 3D 콘텐츠 520px+헤더 기준) */}
         <div className="lg:col-span-4 flex flex-col lg:flex-row gap-6 items-stretch lg:min-h-[600px]">
           <div className="lg:flex-[3] min-w-0 flex flex-col">
-          <Card className="flex-1 min-h-0 flex flex-col">
-            <CardHeader className="pb-2 shrink-0">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>3D 스택 뷰</CardTitle>
-                  <CardDescription>
-                    {currentStackInfo
-                      ? `ID: ${currentStackInfo.stack_id} | Score: ${currentStackInfo.score}`
-                      : "Stack ID: DEMO-STACK (Loading needed)"}
-                  </CardDescription>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={handlePrevStack}
-                    disabled={stackIndex <= 0 || allStacks.length === 0}
-                    title="이전 스택"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </Button>
+            <Card className="flex-1 min-h-0 flex flex-col">
+              <CardHeader className="pb-2 shrink-0">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>3D 스택 뷰</CardTitle>
+                    <CardDescription>
+                      {currentStackInfo
+                        ? `ID: ${currentStackInfo.stack_id} | Score: ${currentStackInfo.score}`
+                        : "Stack ID: DEMO-STACK (Loading needed)"}
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={handlePrevStack}
+                      disabled={stackIndex <= 0 || allStacks.length === 0}
+                      title="이전 스택"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </Button>
 
-                  <Select
-                    value={String(stackIndex)}
-                    onValueChange={(val) => setStackIndex(parseInt(val))}
-                    disabled={allStacks.length === 0}
-                  >
-                    <SelectTrigger className="h-9 w-[120px] border-none bg-transparent hover:bg-muted/50 focus:ring-0 text-xs font-medium justify-center">
-                      <SelectValue>
-                        Stack {allStacks.length > 0 ? stackIndex + 1 : 1}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {allStacks.map((_, idx) => (
-                        <SelectItem key={idx} value={String(idx)}>
-                          Stack {idx + 1}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    <Select
+                      value={String(stackIndex)}
+                      onValueChange={(val) => setStackIndex(parseInt(val))}
+                      disabled={allStacks.length === 0}
+                    >
+                      <SelectTrigger className="h-9 w-[120px] border-none bg-transparent hover:bg-muted/50 focus:ring-0 text-xs font-medium justify-center">
+                        <SelectValue>
+                          Stack {allStacks.length > 0 ? stackIndex + 1 : 1}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {allStacks.map((_, idx) => (
+                          <SelectItem key={idx} value={String(idx)}>
+                            Stack {idx + 1}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
 
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={handleNextStack}
-                    disabled={stackIndex >= allStacks.length - 1 || allStacks.length === 0}
-                    title="다음 스택"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => setExpandedView(!expandedView)}
-                    title={expandedView ? "압축 보기" : "확장 보기"}
-                  >
-                    {expandedView ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => setHighlightDefects(!highlightDefects)}
-                    title={highlightDefects ? "결함 하이라이트 끄기" : "결함 하이라이트 켜기"}
-                  >
-                    {highlightDefects ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                  </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={handleNextStack}
+                      disabled={stackIndex >= allStacks.length - 1 || allStacks.length === 0}
+                      title="다음 스택"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setExpandedView(!expandedView)}
+                      title={expandedView ? "압축 보기" : "확장 보기"}
+                    >
+                      {expandedView ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setHighlightDefects(!highlightDefects)}
+                      title={highlightDefects ? "결함 하이라이트 끄기" : "결함 하이라이트 켜기"}
+                    >
+                      {highlightDefects ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-col lg:flex-row items-stretch gap-6">
-                <div
-                  className={cn(
-                    "flex-1 transition-all duration-500 overflow-hidden",
-                    selectedLayerData
-                      ? "opacity-100 translate-x-0 max-h-[520px]"
-                      : "opacity-0 -translate-x-4 max-h-0 lg:max-h-[520px] lg:max-w-0 lg:opacity-0 lg:-translate-x-4 pointer-events-none"
-                  )}
-                >
-                  {selectedLayerData && (
-                    <LayerPlanarView layer={selectedLayerData} stackIndex={stackIndex} />
-                  )}
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-col lg:flex-row items-stretch gap-6">
+                  <div
+                    className={cn(
+                      "flex-1 transition-all duration-500 overflow-hidden",
+                      selectedLayerData
+                        ? "opacity-100 translate-x-0 max-h-[520px]"
+                        : "opacity-0 -translate-x-4 max-h-0 lg:max-h-[520px] lg:max-w-0 lg:opacity-0 lg:-translate-x-4 pointer-events-none"
+                    )}
+                  >
+                    {selectedLayerData && (
+                      <LayerPlanarView layer={selectedLayerData} stackIndex={stackIndex} />
+                    )}
+                  </div>
+                  <div
+                    className={cn(
+                      "flex-1 transition-all duration-500",
+                      selectedLayerData ? "lg:translate-x-6" : "translate-x-0"
+                    )}
+                  >
+                    <StackVisualization3D
+                      layers={layers}
+                      selectedLayer={selectedLayer}
+                      onSelectLayer={setSelectedLayer}
+                      expandedView={expandedView}
+                      highlightDefects={highlightDefects}
+                    />
+                  </div>
                 </div>
-                <div
-                  className={cn(
-                    "flex-1 transition-all duration-500",
-                    selectedLayerData ? "lg:translate-x-6" : "translate-x-0"
-                  )}
-                >
-                  <StackVisualization3D
-                    layers={layers}
-                    selectedLayer={selectedLayer}
-                    onSelectLayer={setSelectedLayer}
-                    expandedView={expandedView}
-                    highlightDefects={highlightDefects}
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
           </div>
 
           {/* Side Panel - 3D와 같은 높이, 레이어 상세가 남는 공간 채움 */}
