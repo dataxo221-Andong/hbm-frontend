@@ -38,6 +38,19 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { WaferMapVisualization, WaferMapMini } from "@/components/wafer-map"
+import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  Cell
+} from 'recharts'
 
 // Process flow steps
 const PROCESS_STEPS = [
@@ -673,6 +686,7 @@ export default function WaferModelingPage() {
 
   // 패턴 분석 탭 상태
   const [patternTab, setPatternTab] = useState<'phenomenon' | 'guide'>('phenomenon')
+  const [isInsightLoading, setIsInsightLoading] = useState(false)
 
 
   // 웨이퍼 데이터 가져오기 (DB 연동)
@@ -946,47 +960,52 @@ export default function WaferModelingPage() {
     setUploadedFiles([])
   }, [])
 
-  // 배치 결과 리포트 보기 (현재 세션에서 분석된 웨이퍼들 기준)
-  const handleShowBatchReport = useCallback(() => {
-    // 세션에 있는 웨이퍼 중 분석 완료된 건들만 집계
-    const completedWafers = sessionWafers.filter(w => w.status === "completed")
+  // 배치 결과 리포트 -> 종합 분석 인사이트 (DB 데이터 기반, 최근 100개)
+  const handleShowInsight = useCallback(async () => {
+    try {
+      setIsInsightLoading(true)
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://3.39.251.229:5000'
 
-    if (completedWafers.length === 0) {
-      alert("분석 완료된 웨이퍼가 갑습니다.")
-      return
-    }
+      // 최근 100개 데이터 요청 (독립적 호출, 웨이퍼 목록 탭 영향 없음)
+      const res = await fetch(`${API_URL}/wafer/list?page=1&limit=100`)
+      if (!res.ok) throw new Error("Failed to fetch insight data")
 
-    // WaferData -> AnalysisResult 변환
-    const results: AnalysisResult[] = completedWafers.map(w => {
-      // waferMapData가 있으면 사용하고, 없으면 0으로 처리
-      const good = w.waferMapData?.good || 0
-      const bad = w.waferMapData?.bad || 0
-      const total = good + bad
+      const data = await res.json()
 
-      // 결함 정보가 있으면 사용, 없으면 빈 배열
-      // (WaferData에 defects가 optional이므로 체크 필요)
-      const defects = w.defects || []
-
-      return {
-        waferId: w.id,
-        yield: w.yield || 0,
-        grade: w.grade || '등급 없음',
-        goodDie: good,
-        badDie: bad,
-        defects: defects,
-        processedAt: w.processedAt || new Date().toISOString(),
-        imageUrl: w.imageUrl, // Add imageUrl
-        confidence: w.confidence || 0,
-        defectDensity: w.defectDensity || 0
+      if (!data.wafers || data.wafers.length === 0) {
+        alert("분석 완료된 웨이퍼 데이터가 없습니다.")
+        return
       }
-    })
 
-    setBatchAnalysisResults(results)
-    // 배치 시간은 가장 최근 웨이퍼의 처리 시간 또는 현재 시간
-    const lastProcessed = results.length > 0 ? results[0].processedAt : new Date().toISOString()
-    setBatchProcessedAt(lastProcessed)
-    setShowBatchResultModal(true)
-  }, [sessionWafers])
+      // DB 데이터 -> AnalysisResult 변환
+      const results: AnalysisResult[] = data.wafers.map((w: any) => ({
+        waferId: w.lot_name,
+        yield: w.die_count > 0 ? parseFloat(((1 - w.defect_density) * 100).toFixed(1)) : 0,
+        grade: w.total_grade || '등급 없음',
+        goodDie: w.die_count - w.defect_count,
+        badDie: w.defect_count,
+        defects: [{
+          type: w.failure_type || 'None',
+          count: w.defect_count,
+          percent: w.confidence ? w.confidence * 100 : 0
+        }],
+        processedAt: w.created_at,
+        imageUrl: w.wafer_map,
+        confidence: w.confidence ? w.confidence * 100 : 0,
+        defectDensity: w.defect_density ? parseFloat((w.defect_density * 100).toFixed(2)) : 0
+      }))
+
+      setBatchAnalysisResults(results)
+      // 분석 시각은 현재 시각
+      setBatchProcessedAt(new Date().toISOString())
+      setShowBatchResultModal(true)
+    } catch (error) {
+      console.error("Insight fetch error:", error)
+      alert("데이터를 불러오는 중 오류가 발생했습니다.")
+    } finally {
+      setIsInsightLoading(false)
+    }
+  }, [])
 
   const handleWaferView = useCallback((waferId: string) => {
     setSelectedWafer(waferId)
@@ -1178,12 +1197,16 @@ export default function WaferModelingPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={handleShowBatchReport}
+                onClick={handleShowInsight}
                 className="bg-primary/10 hover:bg-primary/20 border-primary/50 text-primary"
-                disabled={sessionWafers.filter(w => w.status === "completed").length === 0}
+                disabled={isInsightLoading}
               >
-                <BarChart3 className="w-4 h-4 mr-2" />
-                배치 결과 리포트
+                {isInsightLoading ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <BarChart3 className="w-4 h-4 mr-2" />
+                )}
+                종합 분석 인사이트
               </Button>
               <Button variant="outline" size="sm" onClick={resetProcess} disabled={isProcessing}>
                 <RotateCcw className="w-4 h-4 mr-2" />
@@ -1938,23 +1961,23 @@ export default function WaferModelingPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Batch Analysis Result Modal - 통계 리포트 형태 */}
+      {/* Batch Analysis Result Modal - 통계 리포트 형태 (대시보드 스타일) */}
       <Dialog open={showBatchResultModal} onOpenChange={setShowBatchResultModal}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-[95vw] h-[90vh] overflow-hidden flex flex-col p-0 gap-0">
+          <DialogHeader className="p-6 pb-2 flex-shrink-0">
             <div className="flex items-center justify-between">
               <div>
                 <DialogTitle className="flex items-center gap-2 text-2xl">
-                  <CheckCircle2 className="w-7 h-7 text-success" />
-                  배치 종합 통계 리포트
+                  <BarChart3 className="w-7 h-7 text-primary" />
+                  최근 분석 종합 인사이트
                 </DialogTitle>
                 <DialogDescription className="text-base mt-2">
-                  전체 웨이퍼 분석 결과 요약
+                  최근 분석된 100건의 웨이퍼 데이터에 대한 종합 품질 리포트입니다.
                 </DialogDescription>
               </div>
               {batchProcessedAt && (
                 <div className="text-right">
-                  <div className="text-xs text-muted-foreground mb-1">분석 일시</div>
+                  <div className="text-xs text-muted-foreground mb-1">리포트 생성</div>
                   <div className="text-sm font-semibold text-foreground">
                     {new Date(batchProcessedAt).toLocaleString("ko-KR", {
                       year: "numeric",
@@ -1969,169 +1992,200 @@ export default function WaferModelingPage() {
             </div>
           </DialogHeader>
 
-          {batchAnalysisResults.length > 0 && (() => {
-            // 통계 계산
-            const totalWafers = batchAnalysisResults.length
-            const totalGoodDie = batchAnalysisResults.reduce((sum, r) => sum + r.goodDie, 0)
-            const totalBadDie = batchAnalysisResults.reduce((sum, r) => sum + r.badDie, 0)
-            const totalDie = totalGoodDie + totalBadDie
+          <div className="flex-1 overflow-y-auto p-6 pt-2">
+            {batchAnalysisResults.length > 0 && (() => {
+              // 통계 계산
+              const totalWafers = batchAnalysisResults.length
+              const totalGoodDie = batchAnalysisResults.reduce((sum, r) => sum + r.goodDie, 0)
+              const totalBadDie = batchAnalysisResults.reduce((sum, r) => sum + r.badDie, 0)
+              const totalDie = totalGoodDie + totalBadDie
 
-            // 평균 결함 밀도 (전체 불량 칩 / 전체 칩)
-            const avgDefectDensity = totalDie > 0 ? (totalBadDie / totalDie) * 100 : 0
+              // 평균 결함 밀도
+              const avgDefectDensity = totalDie > 0 ? (totalBadDie / totalDie) * 100 : 0
 
-            // 불량 패턴 분석 (웨이퍼 단위 카운트)
-            const patternCounts: Record<string, number> = {}
+              // 불량 패턴 분석 (웨이퍼 단위 카운트)
+              const patternCounts: Record<string, number> = {}
+              const defectTypes = ["Center", "Donut", "Edge-Ring", "Edge-Loc", "Loc", "Random", "Scratch", "Near-full"]
+              defectTypes.forEach(t => patternCounts[t] = 0)
+              patternCounts['None'] = 0
 
-            // 초기화
-            const defectTypes = ["Center", "Donut", "Edge-Ring", "Edge-Loc", "Loc", "Random", "Scratch", "Near-full"]
-            defectTypes.forEach(t => patternCounts[t] = 0)
-            patternCounts['None'] = 0
-
-            batchAnalysisResults.forEach(r => {
-              // 각 웨이퍼의 대표 불량 유형 확인
-              let pType = 'None'
-
-              if (r.defects && r.defects.length > 0) {
-                // defects 배열의 첫 번째 요소를 대표 유형으로 간주
-                const mainDefect = r.defects[0]
-                if (mainDefect.type) {
-                  pType = mainDefect.type
+              batchAnalysisResults.forEach(r => {
+                let pType = 'None'
+                if (r.defects && r.defects.length > 0) {
+                  const mainDefect = r.defects[0]
+                  if (mainDefect.type) pType = mainDefect.type
                 }
-              }
-
-              if (patternCounts[pType] !== undefined) {
-                patternCounts[pType]++
-              } else {
-                // 정의되지 않은 패턴이라도 카운트
                 patternCounts[pType] = (patternCounts[pType] || 0) + 1
-              }
-            })
+              })
 
-            // 카운트가 있는 패턴만 정렬 (많은 순)
-            const sortedPatterns = Object.entries(patternCounts)
-              .filter(([_, count]) => count > 0)
-              .sort((a, b) => b[1] - a[1])
+              // 파레토 차트 데이터
+              const paretoData = Object.entries(patternCounts)
+                .filter(([_, count]) => count > 0)
+                .sort((a, b) => b[1] - a[1])
+                .map(([name, count]) => ({
+                  name,
+                  count,
+                  fill: name === 'None' ? '#22c55e' : '#ef4444' // 정상은 초록, 불량은 빨강
+                }))
 
-            const maxCount = Math.max(...Object.values(patternCounts), 1)
+              // 추세 차트 데이터 (시간순 정렬)
+              const trendData = [...batchAnalysisResults]
+                .sort((a, b) => new Date(a.processedAt).getTime() - new Date(b.processedAt).getTime())
+                .map((r, i) => ({
+                  idx: i + 1,
+                  waferId: r.waferId,
+                  density: r.defectDensity ?? 0,
+                  grade: r.grade
+                }))
 
-            return (
-              <div className="space-y-6 py-4">
-                {/* 핵심 지표 카드 - 2x2 그리드 */}
-                <div className="grid grid-cols-2 gap-4">
-                  {/* 첫 번째 줄: 왼쪽 - 총 분석 웨이퍼 */}
-                  <Card className="bg-card border-border">
-                    <CardContent className="py-1 px-6">
-                      <div className="text-sm text-muted-foreground mb-0.5">총 분석 웨이퍼</div>
-                      <div className="flex items-baseline gap-2">
-                        <div className="text-3xl font-bold text-foreground">{totalWafers}</div>
-                        <div className="text-sm text-muted-foreground">장</div>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* 첫 번째 줄: 오른쪽 - 평균 결함 밀도 */}
-                  <Card className="bg-destructive/10 border-destructive/20">
-                    <CardContent className="py-1 px-6">
-                      <div className="text-sm text-muted-foreground mb-0.5">평균 결함 밀도</div>
-                      <div className="flex items-baseline gap-2">
-                        <div className="text-3xl font-bold text-destructive">{avgDefectDensity.toFixed(2)}</div>
-                        <div className="text-sm text-muted-foreground">%</div>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* 두 번째 줄: 왼쪽 - 양품 칩 */}
-                  <Card className="bg-success/10 border-success/20">
-                    <CardContent className="py-1 px-6">
-                      <div className="text-sm text-muted-foreground mb-0.5">양품 칩</div>
-                      <div className="flex items-baseline gap-2">
-                        <div className="text-3xl font-bold text-success">
-                          {totalGoodDie.toLocaleString()}
+              return (
+                <div className="space-y-6">
+                  {/* 1. 핵심 지표 카드 (KPI) */}
+                  <div className="grid grid-cols-4 gap-4">
+                    <Card className="bg-card border-border">
+                      <CardContent className="py-4 px-6 flex flex-col justify-center h-full">
+                        <div className="text-sm text-muted-foreground mb-1">총 분석 웨이퍼</div>
+                        <div className="flex items-baseline gap-2">
+                          <div className="text-3xl font-bold text-foreground">{totalWafers}</div>
+                          <div className="text-sm text-muted-foreground">장</div>
                         </div>
-                        <div className="text-sm text-muted-foreground">개</div>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* 두 번째 줄: 오른쪽 - 불량 칩 */}
-                  <Card className="bg-destructive/10 border-destructive/20">
-                    <CardContent className="py-1 px-6">
-                      <div className="text-sm text-muted-foreground mb-0.5">불량 칩</div>
-                      <div className="flex items-baseline gap-2">
-                        <div className="text-3xl font-bold text-destructive">
-                          {totalBadDie.toLocaleString()}
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-destructive/10 border-destructive/20">
+                      <CardContent className="py-4 px-6 flex flex-col justify-center h-full">
+                        <div className="text-sm text-muted-foreground mb-1">평균 결함 밀도</div>
+                        <div className="flex items-baseline gap-2">
+                          <div className="text-3xl font-bold text-destructive">{avgDefectDensity.toFixed(2)}</div>
+                          <div className="text-sm text-muted-foreground">%</div>
                         </div>
-                        <div className="text-sm text-muted-foreground">개</div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-success/10 border-success/20">
+                      <CardContent className="py-4 px-6 flex flex-col justify-center h-full">
+                        <div className="text-sm text-muted-foreground mb-1">총 양품 칩 (Good)</div>
+                        <div className="flex items-baseline gap-2">
+                          <div className="text-3xl font-bold text-success">{totalGoodDie.toLocaleString()}</div>
+                          <div className="text-sm text-muted-foreground">개</div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-destructive/10 border-destructive/20">
+                      <CardContent className="py-4 px-6 flex flex-col justify-center h-full">
+                        <div className="text-sm text-muted-foreground mb-1">총 불량 칩 (Bad)</div>
+                        <div className="flex items-baseline gap-2">
+                          <div className="text-3xl font-bold text-destructive">{totalBadDie.toLocaleString()}</div>
+                          <div className="text-sm text-muted-foreground">개</div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
 
-                {/* 불량 패턴 분석 통계 */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>불량 패턴 분석 통계</CardTitle>
-                    <CardDescription>
-                      배치 내 불량 유형별 검출 현황 (Failure Type Analysis)
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      {sortedPatterns.map(([pattern, count]) => {
-                        const percentage = (count / totalWafers) * 100 // 전체 웨이퍼 대비 비율로 변경 (그래프 바 길이)
-                        const barWidth = (count / maxCount) * 100 // 최대값 기준 상대 길이 (시각적 균형)
-
-                        return (
-                          <div key={pattern} className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-3">
-                                <span className="text-sm font-medium text-foreground min-w-[120px]">
-                                  {pattern}
-                                </span>
-                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                  <span>웨이퍼: {count}건</span>
-                                </div>
-                              </div>
-                              <div className="text-sm font-semibold text-foreground">
-                                {count}
-                              </div>
-                            </div>
-                            <Progress
-                              value={barWidth}
-                              className="h-3 [&>div]:bg-primary"
+                  {/* 2. 차트 영역 (좌: 추세, 우: 파레토) */}
+                  <div className="grid grid-cols-2 gap-6 h-[400px]">
+                    {/* 결함 밀도 추이 그래프 */}
+                    <Card className="col-span-1 h-full flex flex-col">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-lg">결함 밀도 추이 (Defect Density Trend)</CardTitle>
+                        <CardDescription>최근 100장 웨이퍼의 결함률 변화 (낮을수록 좋음)</CardDescription>
+                      </CardHeader>
+                      <CardContent className="flex-1 w-full min-h-0">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={trendData}>
+                            <CartesianGrid strokeDasharray="3 3" opacity={0.2} vertical={false} />
+                            <XAxis
+                              dataKey="idx"
+                              tick={{ fontSize: 12, fill: '#888' }}
+                              tickLine={false}
+                              axisLine={false}
+                              label={{ value: '분석 순서', position: 'insideBottomRight', offset: -5, fontSize: 10, fill: '#666' }}
                             />
-                          </div>
-                        )
-                      })}
-                      {sortedPatterns.length === 0 && (
-                        <div className="text-center text-muted-foreground text-sm py-4">
-                          데이터가 없습니다.
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
+                            <YAxis
+                              domain={[0, 'auto']}
+                              tick={{ fontSize: 12, fill: '#888' }}
+                              tickLine={false}
+                              axisLine={false}
+                              unit="%"
+                            />
+                            <Tooltip
+                              contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: 'none', borderRadius: '8px', color: '#fff' }}
+                              itemStyle={{ color: '#fff' }}
+                              labelStyle={{ color: '#aaa', marginBottom: '0.25rem' }}
+                              formatter={(value: number) => [`${value.toFixed(2)}%`, '결함 밀도']}
+                              labelFormatter={(label) => `Wafer #${label}`}
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="density"
+                              stroke="#ef4444"
+                              strokeWidth={2}
+                              dot={{ r: 2, fill: '#ef4444' }}
+                              activeDot={{ r: 6, fill: '#ef4444' }}
+                              animationDuration={1500}
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
 
-                {/* 하단 액션 버튼 */}
-                <div className="flex gap-3 pt-4 border-t border-border">
-                  <Button
-                    variant="outline"
-                    className="flex-1 bg-transparent"
-                    onClick={() => setShowBatchResultModal(false)}
-                  >
-                    닫기
-                  </Button>
-                  <Button
-                    className="flex-1"
-                    onClick={() => alert("리포트 저장 기능 준비 중")}
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    전체 결과 리포트 다운로드 (.csv / .pdf)
-                  </Button>
+                    {/* 불량 유형 분포 차트 */}
+                    <Card className="col-span-1 h-full flex flex-col">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-lg">불량 유형별 분포 (Defect Type Distribution)</CardTitle>
+                        <CardDescription>불량 유형별 발생 빈도 현황</CardDescription>
+                      </CardHeader>
+                      <CardContent className="flex-1 w-full min-h-0">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={paretoData} layout="vertical" margin={{ left: 20 }}>
+                            <CartesianGrid strokeDasharray="3 3" opacity={0.2} horizontal={true} vertical={false} />
+                            <XAxis type="number" hide />
+                            <YAxis
+                              dataKey="name"
+                              type="category"
+                              width={80}
+                              tick={{ fontSize: 12, fill: '#888' }}
+                              tickLine={false}
+                              axisLine={false}
+                            />
+                            <Tooltip
+                              cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                              contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: 'none', borderRadius: '8px', color: '#fff' }}
+                              itemStyle={{ color: '#fff' }}
+                              formatter={(value: number) => [`${value}건`, '발생 횟수']}
+                            />
+                            <Bar
+                              dataKey="count"
+                              radius={[0, 4, 4, 0]}
+                              barSize={32}
+                            >
+                              {paretoData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.fill} />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {/* 3. 하단 액션 버튼 */}
+                  <div className="flex justify-end gap-3 pt-4 border-t border-border">
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowBatchResultModal(false)}
+                    >
+                      닫기
+                    </Button>
+                    <Button
+                      onClick={() => alert("리포트 저장 기능 준비 중")}
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      인사이트 리포트 저장 (PDF)
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            )
-          })()}
+              )
+            })()}
+          </div>
         </DialogContent>
       </Dialog>
     </div>
