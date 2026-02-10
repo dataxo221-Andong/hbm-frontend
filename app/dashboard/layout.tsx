@@ -42,6 +42,12 @@ const navigation = [
     description: "웨이퍼 이미지 분류 및 공정 플로우"
   },
   {
+    name: "칩 재고 관리",
+    href: "/dashboard/inventory",
+    icon: Package,
+    description: "AI 기반 재고 예측 및 관리"
+  },
+  {
     name: "적층 구조 시각화",
     href: "/dashboard/stacking",
     icon: Layers3,
@@ -52,12 +58,6 @@ const navigation = [
     href: "/dashboard/logs",
     icon: BarChart3,
     description: "수율 및 파라미터 분석"
-  },
-  {
-    name: "칩 재고 관리",
-    href: "/dashboard/inventory",
-    icon: Package,
-    description: "AI 기반 재고 예측 및 관리"
   },
 ]
 
