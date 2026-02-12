@@ -341,7 +341,12 @@ function AIQualityPanel({
             )}
 
             {/* Quality Chart (노션: 현재 재고상황 + 불량유형) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 relative">
+              {isLoading && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/80 backdrop-blur-[1px]">
+                  <span className="text-sm text-muted-foreground">데이터 불러오는 중...</span>
+                </div>
+              )}
               <div className="h-[200px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -852,10 +857,36 @@ export default function InventoryPage() {
   const [failureTypeDistribution, setFailureTypeDistribution] = useState<
     Array<{ type: string; count: number; color: string }>
   >(CANONICAL_FAILURE_TYPES.map((t) => ({ type: t, count: 0, color: colorForFailureType(t) })))
-  const [qualityLoading, setQualityLoading] = useState(false)
+  const [qualityLoading, setQualityLoading] = useState(true)
   const [qualityError, setQualityError] = useState<string | null>(null)
 
-  const selectedModel = dramOnlyModel
+  // 재고밸런스용: API 성공 시 실제 칩 데이터 기반 모델, 실패 시 데모 fallback
+  const realInventoryModel = useMemo((): InventoryItem | null => {
+    if (qualityError) return null
+    const total = qualitySummary.total
+    const defect = qualitySummary.defect
+    const defectRate = total > 0 ? defect / total : 0
+    const status: StockStatus =
+      defectRate >= 0.7 ? "critical" : defectRate >= 0.5 ? "low" : "optimal"
+    return {
+      id: "realtime",
+      name: "DRAM Die (HBM3)",
+      category: "dram_die",
+      sku: "DRAM-HBM3-8GB",
+      currentStock: total,
+      minStock: 0,
+      maxStock: Math.max(total, 1),
+      optimalStock: Math.max(total, 1),
+      unit: "EA",
+      status,
+      lastUpdated: new Date().toISOString(),
+      trend: "stable",
+      trendValue: 0,
+      daysToReorder: null,
+    }
+  }, [qualitySummary.total, qualitySummary.defect, qualityError])
+
+  const selectedModel = realInventoryModel ?? dramOnlyModel
 
   const balanceByFailureType = useMemo(() => {
     const model = selectedModel
@@ -870,7 +901,8 @@ export default function InventoryPage() {
 
     return dist
       .map((d) => {
-        const base = maxCount === 0 ? 100 : 130 - (d.count / maxCount) * 90 // 40~130
+        // 칩 많을수록 재고율 높게(잉여), 적을수록 낮게(부족). 상한 낮춰서 전부 100%+ 나오지 않게 (40~90)
+        const base = maxCount === 0 ? 100 : 40 + (d.count / maxCount) * 50
         const availability = clamp(base + statusAdj + ratioAdj, 0, 140)
         const delta = availability - 100
         return {
@@ -956,11 +988,18 @@ export default function InventoryPage() {
               <div className="p-2 rounded-lg bg-muted">
                 <Boxes className="w-5 h-5 text-muted-foreground" />
               </div>
-              <div>
+              <div className="min-w-0 flex-1">
                 <p className="text-xs lg:text-sm text-muted-foreground">전체 수량</p>
-                <p className="text-2xl lg:text-3xl font-bold text-foreground tracking-tight">
-                  {qualityStats.total.toLocaleString()}
-                </p>
+                {qualityLoading ? (
+                  <div className="flex items-center gap-2 mt-1">
+                    <div className="h-8 w-20 rounded bg-muted animate-pulse" aria-hidden />
+                    <span className="text-xs text-muted-foreground">로딩 중...</span>
+                  </div>
+                ) : (
+                  <p className="text-2xl lg:text-3xl font-bold text-foreground tracking-tight">
+                    {qualityStats.total.toLocaleString()}개
+                  </p>
+                )}
               </div>
             </div>
           </CardContent>
@@ -971,11 +1010,18 @@ export default function InventoryPage() {
               <div className="p-2 rounded-lg bg-success/10">
                 <CheckCircle2 className="w-5 h-5 text-success" />
               </div>
-              <div>
+              <div className="min-w-0 flex-1">
                 <p className="text-xs lg:text-sm text-muted-foreground">정상 수량</p>
-                <p className="text-2xl lg:text-3xl font-bold text-success tracking-tight">
-                  {qualityStats.normal.toLocaleString()}
-                </p>
+                {qualityLoading ? (
+                  <div className="flex items-center gap-2 mt-1">
+                    <div className="h-8 w-20 rounded bg-muted animate-pulse" aria-hidden />
+                    <span className="text-xs text-muted-foreground">로딩 중...</span>
+                  </div>
+                ) : (
+                  <p className="text-2xl lg:text-3xl font-bold text-success tracking-tight">
+                    {qualityStats.normal.toLocaleString()}개
+                  </p>
+                )}
               </div>
             </div>
           </CardContent>
@@ -986,11 +1032,18 @@ export default function InventoryPage() {
               <div className="p-2 rounded-lg bg-destructive/10">
                 <AlertTriangle className="w-5 h-5 text-destructive" />
               </div>
-              <div>
+              <div className="min-w-0 flex-1">
                 <p className="text-xs lg:text-sm text-muted-foreground">불량 수량</p>
-                <p className="text-2xl lg:text-3xl font-bold text-destructive tracking-tight">
-                  {qualityStats.defect.toLocaleString()}
-                </p>
+                {qualityLoading ? (
+                  <div className="flex items-center gap-2 mt-1">
+                    <div className="h-8 w-20 rounded bg-muted animate-pulse" aria-hidden />
+                    <span className="text-xs text-muted-foreground">로딩 중...</span>
+                  </div>
+                ) : (
+                  <p className="text-2xl lg:text-3xl font-bold text-destructive tracking-tight">
+                    {qualityStats.defect.toLocaleString()}개
+                  </p>
+                )}
               </div>
             </div>
           </CardContent>
@@ -1063,15 +1116,29 @@ export default function InventoryPage() {
                 )}
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
-                {balanceByFailureType.slice(0, 8).map((x) => (
-                  <AvailabilityGauge
-                    key={x.type}
-                    label={x.type}
-                    availability={x.availability}
-                    color={x.color}
-                  />
-                ))}
+              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 relative">
+                {qualityLoading ? (
+                  <>
+                    {Array.from({ length: 8 }).map((_, i) => (
+                      <div
+                        key={i}
+                        className="h-[88px] rounded-xl border border-border bg-muted/30 animate-pulse flex items-center justify-center"
+                        aria-hidden
+                      >
+                        <span className="text-xs text-muted-foreground">로딩 중</span>
+                      </div>
+                    ))}
+                  </>
+                ) : (
+                  balanceByFailureType.slice(0, 8).map((x) => (
+                    <AvailabilityGauge
+                      key={x.type}
+                      label={x.type}
+                      availability={x.availability}
+                      color={x.color}
+                    />
+                  ))
+                )}
               </div>
 
               <div className="mt-3 text-xs text-muted-foreground">
@@ -1080,7 +1147,11 @@ export default function InventoryPage() {
             </div>
 
             {/* 3) AI Reallocation Recommendation */}
-            {selectedModel ? (
+            {qualityLoading ? (
+              <div className="rounded-xl border border-border bg-muted/30 p-4 flex items-center justify-center min-h-[120px]">
+                <span className="text-sm text-muted-foreground">추천 분석 중...</span>
+              </div>
+            ) : selectedModel ? (
               <ReallocationRecommendation
                 model={selectedModel}
                 items={balanceByFailureType.map((x) => ({ type: x.type, availability: x.availability, delta: x.delta }))}

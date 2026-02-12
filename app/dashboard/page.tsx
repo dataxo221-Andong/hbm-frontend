@@ -1042,8 +1042,8 @@ export default function WaferModelingPage() {
     }
   }, [])
 
-  // CSV 내보내기 함수
-  const handleExportCSV = useCallback(async () => {
+  // Excel 내보내기 함수
+  const handleExportExcel = useCallback(async () => {
     try {
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://3.39.251.229:5000'
       const response = await fetch(`${API_URL}/wafer/export`)
@@ -1052,20 +1052,17 @@ export default function WaferModelingPage() {
         throw new Error('Failed to export data')
       }
 
-      // CSV 파일 다운로드
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
 
-      // 파일명 추출 (Content-Disposition 헤더에서)
       const contentDisposition = response.headers.get('Content-Disposition')
-      let filename = `wafer_data_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.csv`
-
+      let filename = `wafer_data_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.xlsx`
       if (contentDisposition) {
         const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/)
         if (filenameMatch && filenameMatch[1]) {
-          filename = filenameMatch[1].replace(/['"]/g, '')
+          filename = filenameMatch[1].replace(/['"]/g, '').trim()
         }
       }
 
@@ -1074,11 +1071,9 @@ export default function WaferModelingPage() {
       a.click()
       window.URL.revokeObjectURL(url)
       document.body.removeChild(a)
-
-      console.log('CSV export successful:', filename)
     } catch (error) {
-      console.error('CSV export failed:', error)
-      alert('CSV 내보내기에 실패했습니다.')
+      console.error('Excel export failed:', error)
+      alert('엑셀 내보내기에 실패했습니다.')
     }
   }, [])
 
@@ -1399,7 +1394,7 @@ export default function WaferModelingPage() {
               <h3 className="text-lg font-medium text-foreground">웨이퍼 목록</h3>
               <p className="text-sm text-muted-foreground">분석 대기 및 완료된 웨이퍼 목록</p>
             </div>
-            <Button variant="outline" size="sm" onClick={handleExportCSV}>
+            <Button variant="outline" size="sm" onClick={handleExportExcel}>
               <Download className="w-4 h-4 mr-2" />
               결과 내보내기
             </Button>
@@ -2174,12 +2169,6 @@ export default function WaferModelingPage() {
                       onClick={() => setShowBatchResultModal(false)}
                     >
                       닫기
-                    </Button>
-                    <Button
-                      onClick={() => alert("리포트 저장 기능 준비 중")}
-                    >
-                      <Download className="w-4 h-4 mr-2" />
-                      인사이트 리포트 저장 (PDF)
                     </Button>
                   </div>
                 </div>

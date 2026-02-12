@@ -8,7 +8,7 @@ function getBackendBaseUrl(): string {
 
 async function forwardToBackend(params: URLSearchParams, authorization: string | null) {
   const backendBase = getBackendBaseUrl()
-  const backendUrl = new URL("/chips", backendBase)
+  const backendUrl = new URL("/inventory/chips", backendBase)
 
   // pass-through query params (limit, offset, wafer_idx, lot_name, failure_type...)
   params.forEach((value, key) => {

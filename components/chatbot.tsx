@@ -50,11 +50,26 @@ function getResponse(input: string): string {
   return DEMO_RESPONSES["default"]
 }
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000"
+
 export function ChatBot({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES)
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const [dataLoading, setDataLoading] = useState(false) // 챗봇 열 때 데이터 수집 중
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  // 챗봇을 열 때 데이터 preload 완료까지 대기, 완료 전에는 로딩 표시
+  useEffect(() => {
+    if (!isOpen) {
+      setDataLoading(false)
+      return
+    }
+    setDataLoading(true)
+    fetch(`${API_URL}/chat/preload`, { method: "GET" })
+      .then(() => setDataLoading(false))
+      .catch(() => setDataLoading(false))
+  }, [isOpen])
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -63,7 +78,7 @@ export function ChatBot({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
   }, [messages])
 
   const handleSend = async () => {
-    if (!input.trim() || isLoading) return
+    if (!input.trim() || isLoading || dataLoading) return
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -79,8 +94,6 @@ export function ChatBot({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
 
     try {
       // 실제 백엔드 API 호출
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:5000'
-      
       const response = await fetch(`${API_URL}/chat`, {
         method: 'POST',
         headers: {
@@ -171,6 +184,17 @@ export function ChatBot({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
         {/* Messages */}
         <div className="flex-1 p-4 overflow-y-auto" ref={scrollRef}>
           <div className="space-y-4">
+            {dataLoading && (
+              <div className="flex gap-3 justify-start">
+                <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
+                  <Bot className="w-4 h-4 text-primary" />
+                </div>
+                <div className="bg-muted rounded-lg px-3 py-2 text-sm text-muted-foreground flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  데이터를 불러오는 중...
+                </div>
+              </div>
+            )}
             {messages.map((message) => (
               <div
                 key={message.id}
@@ -192,10 +216,10 @@ export function ChatBot({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
                       : "bg-muted text-foreground"
                   )}
                 >
-                  <div className="whitespace-pre-wrap prose prose-sm max-w-none dark:prose-invert prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-headings:my-2 prose-h2:my-2 prose-h3:my-2">
+                  <div className="whitespace-pre-wrap prose prose-sm max-w-none dark:prose-invert prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-headings:my-2 prose-h2:my-2 prose-h3:my-2 prose-strong:font-semibold prose-strong:text-foreground">
                     <ReactMarkdown>{message.content}</ReactMarkdown>
                   </div>
-                  <span className="text-xs opacity-60 mt-1 block">
+                  <span className="text-xs opacity-60 mt-1 block" suppressHydrationWarning>
                     {message.timestamp.toLocaleTimeString("ko-KR", {
                       hour: "2-digit",
                       minute: "2-digit"
@@ -225,12 +249,13 @@ export function ChatBot({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
         {/* Quick Actions */}
         <div className="p-2 border-t border-border">
           <div className="flex gap-1 flex-wrap">
-            {["수율 현황", "재고 상태", "적층 분석", "분류 결과"].map((action) => (
+            {["웨이퍼 분석", "칩 재고 현황", "적층 분석", "결과 로그"].map((action) => (
               <Button
                 key={action}
                 variant="outline"
                 size="sm"
                 className="text-xs bg-transparent"
+                disabled={dataLoading}
                 onClick={() => {
                   setInput(action)
                 }}
@@ -245,14 +270,14 @@ export function ChatBot({ isOpen, onClose }: { isOpen: boolean; onClose: () => v
         <div className="p-4 border-t border-border">
           <div className="flex gap-2">
             <Input
-              placeholder="메시지를 입력하세요..."
+              placeholder={dataLoading ? "데이터 준비 중..." : "메시지를 입력하세요..."}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={handleKeyPress}
-              disabled={isLoading}
+              disabled={isLoading || dataLoading}
               className="bg-input"
             />
-            <Button size="icon" onClick={handleSend} disabled={!input.trim() || isLoading}>
+            <Button size="icon" onClick={handleSend} disabled={!input.trim() || isLoading || dataLoading}>
               <Send className="w-4 h-4" />
               <span className="sr-only">전송</span>
             </Button>
