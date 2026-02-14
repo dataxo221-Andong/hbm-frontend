@@ -157,7 +157,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
             >
               <Avatar className="w-8 h-8">
                 <AvatarFallback className="bg-sidebar-primary text-sidebar-primary-foreground text-sm">
-                  JD
+                  SV
                 </AvatarFallback>
               </Avatar>
               {!collapsed && (

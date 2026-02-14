@@ -184,23 +184,23 @@ export default function AuthPage() {
             <WaferIcon className="w-16 h-16 text-primary" />
             <div>
               <h1 className="text-4xl font-bold text-foreground">StackVision</h1>
-              <p className="text-muted-foreground">반도체 웨이퍼 분석 시스템</p>
+              <p className="text-muted-foreground">HBM 제조·분석 통합 플랫폼</p>
             </div>
           </div>
 
           <div className="max-w-md space-y-6 text-center">
             <h2 className="text-2xl font-semibold text-foreground">
-              차세대 HBM 분석 플랫폼
+              웨이퍼부터 적층·재고까지, 한 곳에서
             </h2>
             <p className="text-muted-foreground leading-relaxed">
-              웨이퍼 이미지 분류부터 적층 구조 시각화, AI 기반 재고 관리까지
-              반도체 제조 공정의 모든 분석을 하나의 플랫폼에서 경험하세요.
+              웨이퍼 이미지 분류, 3D 적층 시각화, AI 재고·수율 분석, 엔지니어 문서 챗봇까지.
+              HBM 제조에 필요한 분석을 하나의 대시보드에서 사용하세요.
             </p>
 
             <div className="grid grid-cols-2 gap-4 pt-6">
               <div className="p-4 rounded-lg bg-card/50 border border-border">
-                <div className="text-2xl font-bold text-primary">99.7%</div>
-                <div className="text-sm text-muted-foreground">분류 정확도</div>
+                <div className="text-2xl font-bold text-primary">웨이퍼</div>
+                <div className="text-sm text-muted-foreground">분류·모델링</div>
               </div>
               <div className="p-4 rounded-lg bg-card/50 border border-border">
                 <div className="text-2xl font-bold text-accent">3D</div>
@@ -208,11 +208,11 @@ export default function AuthPage() {
               </div>
               <div className="p-4 rounded-lg bg-card/50 border border-border">
                 <div className="text-2xl font-bold text-primary">AI</div>
-                <div className="text-sm text-muted-foreground">재고 예측</div>
+                <div className="text-sm text-muted-foreground">재고·챗봇</div>
               </div>
               <div className="p-4 rounded-lg bg-card/50 border border-border">
-                <div className="text-2xl font-bold text-accent">실시간</div>
-                <div className="text-sm text-muted-foreground">모니터링</div>
+                <div className="text-2xl font-bold text-accent">수율·로그</div>
+                <div className="text-sm text-muted-foreground">실시간</div>
               </div>
             </div>
           </div>

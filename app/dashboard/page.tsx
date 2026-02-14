@@ -1267,7 +1267,7 @@ export default function WaferModelingPage() {
                   분석 데이터 업로드
                 </h3>
                 <p className="text-sm text-muted-foreground mb-4">
-                  .pkl (pickle) 파일을 드래그 앤 드롭하거나 클릭하여 업로드하세요
+                  파일을 드래그 앤 드롭하거나 클릭하여 업로드하세요
                 </p>
                 <Button variant="outline" className="bg-transparent">
                   파일 선택
